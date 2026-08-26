@@ -3,6 +3,6 @@ import { defineConfig } from 'vite'
 
 // https://vite.dev/config/
 export default defineConfig(({ command }) => ({
-  base: command === 'serve' ? '/' : '/forgeboard-studio/',
+  base: command === 'serve' ? '/' : './',
   plugins: [react()],
 }))
