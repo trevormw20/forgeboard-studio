@@ -1,0 +1,17 @@
+{
+  "name": "Forgeboard — Game Studio Planner",
+  "short_name": "Forgeboard",
+  "description": "A deadline-first game development tracker synced through a private GitHub repository.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0b0d10",
+  "theme_color": "#0b0d10",
+  "orientation": "any",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Today", "short_name": "Today", "url": "./" }
+  ]
+}

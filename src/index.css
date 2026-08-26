@@ -1,0 +1,38 @@
+:root {
+  font-family: 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  color: #f4f6f8;
+  background: #0b0d10;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  --bg: #0b0d10;
+  --panel: #12151a;
+  --panel-2: #171b21;
+  --panel-3: #1d222a;
+  --line: #292f38;
+  --line-soft: #20252c;
+  --text: #f5f7f9;
+  --muted: #96a0ad;
+  --muted-2: #6f7985;
+  --lime: #c7f36b;
+  --lime-ink: #12170a;
+  --orange: #ff9f5a;
+  --red: #ff6b6b;
+  --blue: #7c9cff;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { min-width: 320px; background: var(--bg); }
+body { margin: 0; min-width: 320px; min-height: 100vh; background: radial-gradient(circle at 70% -20%, #192029 0, transparent 35%), var(--bg); }
+button, input, textarea, select { font: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; opacity: .55; }
+a { color: inherit; }
+input, textarea, select { color-scheme: dark; }
+::selection { color: #0b0d10; background: var(--lime); }
+:focus-visible { outline: 2px solid var(--lime); outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}
