@@ -30,3 +30,5 @@ npm run build
 ```
 
 The GitHub Pages workflow runs tests and the production build before every deployment.
+
+Forgeboard is a general project tracker, not a HIPAA-certified system. Do not store patient-identifying or regulated health data here without a separate compliance and security review.
