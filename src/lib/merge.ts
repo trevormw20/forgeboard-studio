@@ -3,7 +3,7 @@ import type { ConflictRecord, Workspace } from '../types'
 
 type Entity = { id: string; updatedAt?: string; deletedAt?: string }
 
-const unionArrayKeys = new Set(['rescheduleLog'])
+const unionArrayKeys = new Set(['rescheduleLog', 'subtasks'])
 
 function same(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right)
@@ -13,6 +13,12 @@ function unionById(left: unknown[], right: unknown[]): unknown[] {
   const map = new Map<string, unknown>()
   for (const item of [...left, ...right]) {
     const id = typeof item === 'object' && item && 'id' in item ? String((item as { id: unknown }).id) : JSON.stringify(item)
+    const existing = map.get(id)
+    if (
+      existing && typeof existing === 'object' && typeof item === 'object' && item
+      && 'updatedAt' in existing && 'updatedAt' in item
+      && String(existing.updatedAt ?? '') > String(item.updatedAt ?? '')
+    ) continue
     map.set(id, item)
   }
   return [...map.values()]

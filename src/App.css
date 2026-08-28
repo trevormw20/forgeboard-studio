@@ -86,9 +86,12 @@ kbd { min-width: 20px; height: 20px; display: inline-grid; place-items: center; 
 .item-count { color: var(--muted-2); font-size: 11px; }
 .task-list { display: grid; }
 .global-task-list { background: var(--panel); border: 1px solid var(--line-soft); border-radius: 14px; overflow: hidden; }
-.task-row { padding: 13px 14px; min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: flex-start; gap: 11px; border-bottom: 1px solid var(--line-soft); transition: .15s ease; }
+.task-row { position: relative; padding: 13px 14px; min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: flex-start; gap: 11px; border-bottom: 1px solid var(--line-soft); transition: .15s ease; }
 .task-row:last-child { border-bottom: 0; }
 .task-row:hover { background: #191d23; }
+.task-row.has-task-color { background: linear-gradient(90deg, color-mix(in srgb, var(--task-color) 9%, transparent), transparent 48%); }
+.task-row.has-task-color:hover { background: linear-gradient(90deg, color-mix(in srgb, var(--task-color) 14%, #191d23), #191d23 52%); }
+.task-row.has-task-color::before { content: ''; position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--task-color); box-shadow: 0 0 13px color-mix(in srgb, var(--task-color) 42%, transparent); }
 .check-button { flex: 0 0 auto; width: 20px; height: 20px; margin-top: 1px; display: grid; place-items: center; color: var(--lime-ink); background: transparent; border: 1.5px solid #4a535e; border-radius: 6px; }
 .check-button:hover { border-color: var(--lime); }
 .task-done .check-button { background: var(--lime); border-color: var(--lime); }
@@ -107,12 +110,34 @@ kbd { min-width: 20px; height: 20px; display: inline-grid; place-items: center; 
 .tip-line summary { width: max-content; display: flex; align-items: center; gap: 5px; color: #91b45a; font-size: 10px; cursor: pointer; list-style: none; }
 .tip-line p { max-width: 680px; margin: 7px 0 2px; padding: 8px 10px; color: #b6c0aa; background: #171d15; border-left: 2px solid #7c9f46; border-radius: 0 6px 6px 0; font-size: 11px; line-height: 1.5; }
 .task-actions { display: flex; align-items: center; gap: 7px; }
+.task-color-select { position: relative; width: 25px; height: 25px; display: grid; place-items: center; color: var(--muted-2); background: #101317; border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
+.task-color-select:hover { color: var(--text); border-color: #48515d; }
+.task-color-select select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.task-color-swatch { width: 10px; height: 10px; border-radius: 50%; box-shadow: 0 0 8px currentColor; }
 .priority { padding: 3px 7px; border-radius: 5px; font-size: 8px; font-weight: 800; text-transform: uppercase; letter-spacing: .65px; }
 .priority-low { color: #9ba5af; background: #808a9516; }
 .priority-medium { color: #9eb6ff; background: #7c9cff17; }
 .priority-high { color: #ffbd84; background: #ff9f5a1a; }
 .priority-urgent { color: #ff9c9c; background: #ff6b6b22; box-shadow: 0 0 14px #ff6b6b0f; }
 .small-button { padding: 3px 6px; color: var(--muted); background: transparent; border: 1px solid var(--line); border-radius: 5px; font-size: 9px; }
+.subtask-area { grid-column: 2 / -1; min-width: 0; display: grid; gap: 7px; }
+.subtask-list { display: grid; gap: 5px; }
+.subtask-row { min-height: 29px; padding: 4px 7px; display: flex; align-items: center; gap: 8px; color: #cbd2d8; background: #0f1216; border: 1px solid #252b32; border-radius: 7px; font-size: 11px; }
+.subtask-row > button { flex: 0 0 auto; width: 17px; height: 17px; display: grid; place-items: center; color: var(--lime-ink); background: transparent; border: 1px solid #48515c; border-radius: 5px; }
+.subtask-row > button:hover { border-color: var(--lime); }
+.subtask-row.subtask-done { color: var(--muted-2); }
+.subtask-row.subtask-done > button { background: var(--lime); border-color: var(--lime); }
+.subtask-row.subtask-done > span { text-decoration: line-through; }
+.subtask-footer { min-height: 27px; display: flex; align-items: center; gap: 8px; }
+.subtask-add-toggle { min-height: 27px; padding: 0 8px; display: inline-flex; align-items: center; gap: 4px; color: #aab3bc; background: #11151a; border: 1px dashed #39424c; border-radius: 6px; font-size: 9px; font-weight: 700; }
+.subtask-add-toggle:hover, .subtask-add-toggle[aria-expanded='true'] { color: var(--lime); border-color: #617642; background: #171d15; }
+.subtask-progress { color: var(--muted-2); font-size: 9px; }
+.subtask-form { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 6px; }
+.subtask-form input { min-width: 0; height: 34px; padding: 0 9px; color: var(--text); background: #0c0f12; border: 1px solid #343c45; border-radius: 7px; outline: 0; font-size: 11px; }
+.subtask-form input:focus { border-color: #7b944b; box-shadow: 0 0 0 3px #c7f36b0c; }
+.subtask-form button { min-height: 34px; padding: 0 9px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; color: var(--lime-ink); background: var(--lime); border: 0; border-radius: 7px; font-size: 9px; font-weight: 700; }
+.subtask-form button:disabled { opacity: .45; cursor: not-allowed; }
+.subtask-form .subtask-cancel { width: 34px; padding: 0; color: var(--muted); background: #171b20; border: 1px solid var(--line); }
 .project-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
 .project-card { min-width: 0; min-height: 150px; padding: 14px; display: grid; grid-template-columns: auto 1fr auto; align-items: start; gap: 10px; text-align: left; color: var(--text); background: linear-gradient(155deg, color-mix(in srgb, var(--project-color) 9%, var(--panel)), var(--panel) 45%); border: 1px solid color-mix(in srgb, var(--project-color) 22%, var(--line)); border-radius: 13px; transition: .18s ease; }
 .project-card:hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--project-color) 48%, var(--line)); }
@@ -272,6 +297,7 @@ kbd { min-width: 20px; height: 20px; display: inline-grid; place-items: center; 
   .project-card { min-height: 112px; }
   .task-row { grid-template-columns: auto minmax(0, 1fr); }
   .task-actions { grid-column: 2; justify-content: flex-start; }
+  .subtask-area { grid-column: 2; }
   .project-hero-main { align-items: flex-start; }
   .project-hero-icon { width: 43px; height: 43px; font-size: 20px; }
   .project-hero h1 { font-size: 24px; }

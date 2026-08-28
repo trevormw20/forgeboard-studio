@@ -47,6 +47,17 @@ export interface RescheduleEntry {
   at: string
 }
 
+export type TaskColor = 'slate' | 'blue' | 'violet' | 'pink' | 'red' | 'orange' | 'green' | 'yellow'
+
+export interface Subtask {
+  id: string
+  title: string
+  createdAt: string
+  updatedAt: string
+  completedAt?: string
+  deletedAt?: string
+}
+
 export interface Task {
   id: string
   projectId: string
@@ -67,6 +78,8 @@ export interface Task {
   deadlineId?: string
   sourceNoteId?: string
   tip?: string
+  color?: TaskColor
+  subtasks?: Subtask[]
   rescheduleLog: RescheduleEntry[]
 }
 

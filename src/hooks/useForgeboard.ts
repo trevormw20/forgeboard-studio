@@ -26,6 +26,7 @@ import type {
   Recurrence,
   StartingPriority,
   SyncMeta,
+  TaskColor,
   Workspace,
 } from '../types'
 
@@ -227,11 +228,13 @@ export function useForgeboard() {
     recurrence?: Recurrence
     escalation?: typeof DEFAULT_ESCALATION
     notes?: string
+    color?: TaskColor
   }) => {
     const task = createTask(input)
     task.recurrence = input.recurrence
     task.escalation = input.escalation
     task.notes = input.notes
+    task.color = input.color
     commit('task.create', task.id, (draft, now) => {
       draft.tasks.push(task)
       draft.activity.push({ id: createId('event'), type: 'created', at: now, projectId: task.projectId, taskId: task.id, title: task.title })
@@ -263,9 +266,51 @@ export function useForgeboard() {
           nextTask.recurrence = task.recurrence
           nextTask.escalation = task.escalation
           nextTask.notes = task.notes
+          nextTask.color = task.color
+          nextTask.subtasks = (task.subtasks ?? []).filter((subtask) => !subtask.deletedAt).map((subtask) => ({
+            id: createId('subtask'),
+            title: subtask.title,
+            createdAt: now,
+            updatedAt: now,
+          }))
           draft.tasks.push(nextTask)
         }
       }
+      task.updatedAt = now
+      task.touchedAt = now
+    })
+  }, [commit])
+
+  const addSubtask = useCallback((taskId: string, title: string) => {
+    const cleanTitle = title.trim()
+    if (!cleanTitle) return
+    commit('subtask.create', taskId, (draft, now) => {
+      const task = draft.tasks.find((item) => item.id === taskId)
+      if (!task) return
+      task.subtasks ??= []
+      task.subtasks.push({ id: createId('subtask'), title: cleanTitle, createdAt: now, updatedAt: now })
+      task.updatedAt = now
+      task.touchedAt = now
+    })
+  }, [commit])
+
+  const toggleSubtask = useCallback((taskId: string, subtaskId: string) => {
+    commit('subtask.toggle', taskId, (draft, now) => {
+      const task = draft.tasks.find((item) => item.id === taskId)
+      const subtask = task?.subtasks?.find((item) => item.id === subtaskId)
+      if (!task || !subtask) return
+      subtask.completedAt = subtask.completedAt ? undefined : now
+      subtask.updatedAt = now
+      task.updatedAt = now
+      task.touchedAt = now
+    })
+  }, [commit])
+
+  const setTaskColor = useCallback((taskId: string, color?: TaskColor) => {
+    commit('task.color', taskId, (draft, now) => {
+      const task = draft.tasks.find((item) => item.id === taskId)
+      if (!task) return
+      task.color = color
       task.updatedAt = now
       task.touchedAt = now
     })
@@ -349,6 +394,9 @@ export function useForgeboard() {
       setBoardCollapsed,
       addTask,
       toggleTask,
+      addSubtask,
+      toggleSubtask,
+      setTaskColor,
       rescheduleTask,
       addMilestone,
       toggleMilestone,

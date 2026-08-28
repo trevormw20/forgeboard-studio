@@ -1,6 +1,6 @@
 import { createId } from './lib/ids'
 import { DEFAULT_ESCALATION } from './lib/priority'
-import type { BoardKey, Project, StartingPriority, Task, Workspace } from './types'
+import type { BoardKey, Project, StartingPriority, Task, TaskColor, Workspace } from './types'
 
 const projectSeeds = [
   ['calculator-quest', 'Calculator Quest', '#ffb45d', '🧮'],
@@ -48,6 +48,7 @@ export function createTask(input: {
   scheduledAt?: string
   deadlineId?: string
   sourceNoteId?: string
+  color?: TaskColor
 }, now = new Date().toISOString()): Task {
   return {
     id: createId('task'),
@@ -60,6 +61,8 @@ export function createTask(input: {
     scheduledAt: input.scheduledAt,
     deadlineId: input.deadlineId,
     sourceNoteId: input.sourceNoteId,
+    color: input.color,
+    subtasks: [],
     createdAt: now,
     updatedAt: now,
     touchedAt: now,
