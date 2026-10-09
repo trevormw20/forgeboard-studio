@@ -41,7 +41,10 @@ export function importSubmissions(workspace: Workspace, files: { path: string; t
       const id = `submission:${submission.id}`
       if (next.tasks.some((task) => task.id === id)) continue
       const projectName = submission.project.trim()
-      let project = next.projects.find((item) => !item.deletedAt && (item.id === projectName || item.name.toLowerCase() === projectName.toLowerCase()))
+      const matches = next.projects.filter((item) => !item.deletedAt && item.name.toLowerCase() === projectName.toLowerCase())
+      let project = next.projects.find((item) => !item.deletedAt && item.id === projectName)
+      if (!project && matches.length > 1) throw new Error('Project name is ambiguous. Use its exact project id.')
+      project ??= matches[0]
       if (!project) {
         project = createProject(projectName, '#7c9cff', '🎮', now)
         project.id = `inbox-project:${encodeURIComponent(projectName.toLowerCase())}`

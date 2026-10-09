@@ -37,7 +37,7 @@ export async function fetchTaskInbox(config: ConnectionConfig): Promise<{ path: 
   const entries = await response.json() as { type: string; path: string; size: number }[]
   if (!Array.isArray(entries)) throw new Error('data/task-inbox must be a folder.')
   const files = entries.filter((entry) => entry.type === 'file' && entry.path.endsWith('.json'))
-  if (files.length >= 1000) throw new Error('Archive processed inbox files: GitHub directory listings are limited to 1,000 entries.')
+  if (entries.length >= 1000) throw new Error('Archive processed inbox files: GitHub directory listings are limited to 1,000 entries.')
   const result: { path: string; text: string }[] = []
   // Small batches avoid flooding GitHub with simultaneous requests.
   for (let i = 0; i < files.length; i += 5) {
