@@ -12,7 +12,8 @@ import {
   saveConnection,
   saveSha,
 } from '../lib/db'
-import { fetchWorkspace, GitHubSyncError, putWorkspace } from '../lib/github'
+import { fetchWorkspace, fetchTaskInbox, GitHubSyncError, putWorkspace } from '../lib/github'
+import { importSubmissions } from '../lib/taskInbox'
 import { createId, isoNow } from '../lib/ids'
 import { mergeWorkspaces } from '../lib/merge'
 import { DEFAULT_ESCALATION } from '../lib/priority'
@@ -55,6 +56,7 @@ export function useForgeboard() {
   const [workspace, setWorkspace] = useState<Workspace>(() => createSeedWorkspace())
   const [connection, setConnection] = useState<ConnectionConfig>(defaultConnection)
   const [ready, setReady] = useState(false)
+  const [inboxStatus, setInboxStatus] = useState('Inbox checks when connected.')
   const [syncMeta, setSyncMeta] = useState<SyncMeta>({
     dirty: false,
     syncing: false,
@@ -116,6 +118,10 @@ export function useForgeboard() {
     syncingRef.current = true
     setSyncMeta((meta) => ({ ...meta, syncing: true, lastError: undefined }))
     try {
+      let inboxFiles: { path: string; text: string }[] = []
+      let inboxError = ''
+      try { inboxFiles = await fetchTaskInbox(config) }
+      catch (error) { inboxError = error instanceof Error ? error.message : 'Inbox could not be read.' }
       let attempt = 0
       while (attempt < 3) {
         attempt += 1
@@ -125,7 +131,8 @@ export function useForgeboard() {
           countMutations(),
         ])
         const local = workspaceRef.current
-        const merged = !base && pending === 0 ? remote : mergeWorkspaces(base, local, remote)
+        const importResult = importSubmissions(!base && pending === 0 ? remote : mergeWorkspaces(base, local, remote), inboxFiles, isoNow())
+        const merged = importResult.workspace
         let finalSha = sha
         if (pending > 0 || JSON.stringify(merged) !== JSON.stringify(remote)) {
           try {
@@ -135,11 +142,16 @@ export function useForgeboard() {
             throw error
           }
         }
-        workspaceRef.current = merged
-        setWorkspace(merged)
-        await Promise.all([saveCachedWorkspace(merged), saveBaseWorkspace(merged), saveSha(finalSha), clearMutations()])
+        const changedDuringWrite = workspaceRef.current !== local
+        const displayed = changedDuringWrite ? mergeWorkspaces(local, workspaceRef.current, merged) : merged
+        workspaceRef.current = displayed
+        setWorkspace(displayed)
+        await Promise.all([saveCachedWorkspace(displayed), saveBaseWorkspace(merged), saveSha(finalSha)])
+        if (!changedDuringWrite) await clearMutations()
+        const remaining = await countMutations()
+        setInboxStatus(inboxError ? `Inbox: ${inboxError}` : importResult.errors.length ? `Inbox needs attention: ${importResult.errors.join(' · ')}` : importResult.added ? `Imported ${importResult.added} submission${importResult.added === 1 ? '' : 's'} with checklists.` : 'Inbox checked. No new submissions.')
         const lastSyncedAt = isoNow()
-        setSyncMeta({ dirty: false, syncing: false, online: true, pendingWrites: 0, lastSyncedAt })
+        setSyncMeta({ dirty: changedDuringWrite, syncing: false, online: true, pendingWrites: remaining, lastSyncedAt })
         return true
       }
       throw new Error('The workspace changed repeatedly. Try Sync now again.')
@@ -159,6 +171,8 @@ export function useForgeboard() {
       void syncNow()
     }
     const offline = () => setSyncMeta((meta) => ({ ...meta, online: false }))
+    const visible = () => { if (document.visibilityState === 'visible' && navigator.onLine && isConfigured(connectionRef.current)) void syncNow() }
+    document.addEventListener('visibilitychange', visible)
     window.addEventListener('online', online)
     window.addEventListener('offline', offline)
     const timer = window.setInterval(() => { if (navigator.onLine) void syncNow() }, 120_000)
@@ -166,6 +180,7 @@ export function useForgeboard() {
     return () => {
       window.removeEventListener('online', online)
       window.removeEventListener('offline', offline)
+      document.removeEventListener('visibilitychange', visible)
       window.clearInterval(timer)
     }
   }, [ready, syncNow])
@@ -383,6 +398,7 @@ export function useForgeboard() {
     workspace,
     connection,
     ready,
+    inboxStatus,
     syncMeta,
     configured: isConfigured(connection),
     actions: {

@@ -29,6 +29,31 @@ function decodeBase64(value: string): string {
   return new TextDecoder().decode(bytes)
 }
 
+export async function fetchTaskInbox(config: ConnectionConfig): Promise<{ path: string; text: string }[]> {
+  const root = `https://api.github.com/repos/${encodeURIComponent(config.owner)}/${encodeURIComponent(config.repo)}/contents/`
+  const response = await fetch(`${root}data/task-inbox?ref=${encodeURIComponent(config.branch)}`, { headers: headers(config), cache: 'no-store' })
+  if (response.status === 404) return []
+  if (!response.ok) throw new GitHubSyncError(friendlyError(response.status), response.status)
+  const entries = await response.json() as { type: string; path: string; size: number }[]
+  if (!Array.isArray(entries)) throw new Error('data/task-inbox must be a folder.')
+  const files = entries.filter((entry) => entry.type === 'file' && entry.path.endsWith('.json'))
+  if (files.length >= 1000) throw new Error('Archive processed inbox files: GitHub directory listings are limited to 1,000 entries.')
+  const result: { path: string; text: string }[] = []
+  // Small batches avoid flooding GitHub with simultaneous requests.
+  for (let i = 0; i < files.length; i += 5) {
+    const batch = await Promise.all(files.slice(i, i + 5).map(async (file) => {
+      if (file.size > 200_000) return { path: file.path, text: '{}' }
+      const path = file.path.split('/').map(encodeURIComponent).join('/')
+      const reply = await fetch(`${root}${path}?ref=${encodeURIComponent(config.branch)}`, { headers: headers(config), cache: 'no-store' })
+      if (!reply.ok) throw new GitHubSyncError(friendlyError(reply.status), reply.status)
+      const body = await reply.json() as { content: string }
+      return { path: file.path, text: decodeBase64(body.content) }
+    }))
+    result.push(...batch)
+  }
+  return result
+}
+
 function encodeBase64(value: string): string {
   const bytes = new TextEncoder().encode(value)
   let binary = ''

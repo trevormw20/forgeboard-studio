@@ -1,0 +1,17 @@
+{
+  "format": "forgeboard-task",
+  "version": 1,
+  "id": "count-on-chaos-2026-10-09-example",
+  "project": "Count on Chaos",
+  "date": "2026-10-09",
+  "summary": "Demo modifications to complete",
+  "board": "myTodo",
+  "priority": "medium",
+  "notes": "Example only. Replace these steps with verified remaining work.",
+  "subtasks": [
+    { "id": "fix", "title": "Fix the reported issue" },
+    { "id": "add", "title": "Add the requested change" },
+    { "id": "verify", "title": "Double-check the change works" },
+    { "id": "playtest", "title": "Play the build and record feedback" }
+  ]
+}

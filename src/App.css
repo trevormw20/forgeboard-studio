@@ -121,6 +121,13 @@ kbd { min-width: 20px; height: 20px; display: inline-grid; place-items: center; 
 .priority-urgent { color: #ff9c9c; background: #ff6b6b22; box-shadow: 0 0 14px #ff6b6b0f; }
 .small-button { padding: 3px 6px; color: var(--muted); background: transparent; border: 1px solid var(--line); border-radius: 5px; font-size: 9px; }
 .subtask-area { grid-column: 2 / -1; min-width: 0; display: grid; gap: 7px; }
+.submitted-task { border-left: 3px solid #7c9cff; }
+.submission-heading { display: flex; align-items: center; gap: 7px; color: #a7baff; font-size: 12px; padding: 8px 0; }
+.inbox-status { display: flex; align-items: flex-start; gap: 12px; padding: 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow-wrap: anywhere; }
+.inbox-status p { margin: 6px 0; font-size: 13px; }
+.inbox-status small { color: var(--muted); }
+.submitted-task .subtask-row { min-height: 44px; font-size: 13px; }
+.submitted-task .subtask-row > button { width: 28px; height: 28px; }
 .subtask-list { display: grid; gap: 5px; }
 .subtask-row { min-height: 29px; padding: 4px 7px; display: flex; align-items: center; gap: 8px; color: #cbd2d8; background: #0f1216; border: 1px solid #252b32; border-radius: 7px; font-size: 11px; }
 .subtask-row > button { flex: 0 0 auto; width: 17px; height: 17px; display: grid; place-items: center; color: var(--lime-ink); background: transparent; border: 1px solid #48515c; border-radius: 5px; }

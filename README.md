@@ -2,6 +2,10 @@
 
 Forgeboard is a deadline-first, mobile-first game development planner. The public app is a static installable PWA. Planner state lives in one JSON file in a separate private GitHub repository and syncs through the GitHub Contents API.
 
+## Automatic chat submissions
+
+Other chats can leave separate `forgeboard-task` JSON files in `data/task-inbox/` in the private vault. Forgeboard imports them on launch, foreground return, reconnect, and periodic sync. Each file becomes one dated task with nested checkable subtasks. Stable submission IDs prevent duplicates and preserve completion. See `templates/chat-submission.example.json` and `scripts/publish-task-inbox.ps1` to publish locally saved files. The Today screen reports inbox results and invalid files.
+
 ## Security boundary
 
 - This public repository contains app code only—never planner data, access tokens, Gmail credentials, or OpenAI keys.

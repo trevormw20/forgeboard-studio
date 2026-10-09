@@ -80,6 +80,7 @@ export interface Task {
   tip?: string
   color?: TaskColor
   subtasks?: Subtask[]
+  submission?: { id: string; date: string; sourceFile: string }
   rescheduleLog: RescheduleEntry[]
 }
 
