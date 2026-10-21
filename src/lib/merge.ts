@@ -107,6 +107,8 @@ export function mergeWorkspaces(base: Workspace | undefined, local: Workspace, r
     milestones: mergeCollection('milestone', base?.milestones ?? [], local.milestones, remote.milestones, conflicts),
     deadlines: mergeCollection('deadline', base?.deadlines ?? [], local.deadlines, remote.deadlines, conflicts),
     inboxNotes: mergeCollection('inbox-note', base?.inboxNotes ?? [], local.inboxNotes, remote.inboxNotes, conflicts),
+    personalNotes: local.personalNotes || remote.personalNotes || base?.personalNotes ? mergeCollection('personal-note', base?.personalNotes ?? [], local.personalNotes ?? [], remote.personalNotes ?? [], conflicts) : undefined,
+    noteLabels: local.noteLabels || remote.noteLabels || base?.noteLabels ? mergeCollection('note-label', base?.noteLabels ?? [], local.noteLabels ?? [], remote.noteLabels ?? [], conflicts) : undefined,
     activity: unionById(local.activity, remote.activity) as Workspace['activity'],
     reports: (unionById(local.reports, remote.reports) as Workspace['reports']).filter((report) => Date.parse(report.createdAt) >= Date.now() - 30 * 86_400_000),
     conflicts: unionById(conflicts, []) as ConflictRecord[],

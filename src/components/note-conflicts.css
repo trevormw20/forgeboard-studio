@@ -1,0 +1,11 @@
+.note-conflict-copies { margin-top: 28px; padding: 16px 18px; color: var(--muted); background: var(--panel); border: 1px solid var(--line); border-radius: 14px; }
+.note-conflict-copies > summary { cursor: pointer; color: var(--text); font-size: .88rem; font-weight: 600; }
+.note-conflict-copies > summary span { margin-left: 8px; color: var(--muted); }
+.note-conflict-copies p { font-size: .83rem; line-height: 1.6; }
+.note-conflict-copies section { padding: 16px 0; border-top: 1px solid var(--line); }
+.note-conflict-copies h3 { margin: 0 0 4px; color: var(--text); font-size: .94rem; }
+.note-conflict-versions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 14px; }
+.note-conflict-versions strong { color: var(--text); font-size: .8rem; }
+.note-conflict-versions pre { overflow: auto; max-height: 180px; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: .83rem; line-height: 1.5; }
+.note-conflict-versions button { width: 100%; min-height: 44px; font-size: .8rem; }
+@media (max-width: 600px) { .note-conflict-versions { grid-template-columns: 1fr; } }

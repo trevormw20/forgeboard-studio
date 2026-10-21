@@ -20,6 +20,8 @@ import { createId, isoNow } from '../lib/ids'
 import { mergeWorkspaces, sameWorkspaceContent } from '../lib/merge'
 import { DEFAULT_ESCALATION } from '../lib/priority'
 import { routeNote } from '../lib/routing'
+import { createPersonalNote, editPersonalNote, removePersonalNote, restorePersonalNoteTree, upsertNoteLabel, removeNoteLabel } from '../lib/personalNotes'
+import type { PersonalNoteInput, PersonalNoteUpdate, NoteLabelInput } from '../lib/personalNotes'
 import { createProject, createSeedWorkspace, createTask } from '../seed'
 import type {
   BoardKey,
@@ -496,6 +498,34 @@ export function useForgeboard() {
     return { taskId: task.id, ...route }
   }, [commit])
 
+  const addPersonalNote = useCallback((input: PersonalNoteInput): string => {
+    const id = createId('personal-note')
+    commit('personal-note.create', id, (draft, now) => { createPersonalNote(draft, input, id, now) })
+    return id
+  }, [commit])
+
+  const updatePersonalNote = useCallback((id: string, input: PersonalNoteUpdate): void => {
+    commit('personal-note.update', id, (draft, now) => { editPersonalNote(draft, id, input, now) })
+  }, [commit])
+
+  const deletePersonalNote = useCallback((id: string): void => {
+    commit('personal-note.delete', id, (draft, now) => { removePersonalNote(draft, id, now) })
+  }, [commit])
+
+  const restorePersonalNote = useCallback((id: string): void => {
+    commit('personal-note.restore', id, (draft, now) => { restorePersonalNoteTree(draft, id, now) })
+  }, [commit])
+
+  const saveNoteLabel = useCallback((input: NoteLabelInput): string => {
+    const id = input.id ?? createId('note-label')
+    commit('note-label.save', id, (draft, now) => { upsertNoteLabel(draft, input, id, now) })
+    return id
+  }, [commit])
+
+  const deleteNoteLabel = useCallback((id: string): void => {
+    commit('note-label.delete', id, (draft, now) => { removeNoteLabel(draft, id, now) })
+  }, [commit])
+
   return {
     workspace,
     connection,
@@ -530,6 +560,12 @@ export function useForgeboard() {
       toggleMilestone,
       addDeadline,
       quickCapture,
+      addPersonalNote,
+      updatePersonalNote,
+      deletePersonalNote,
+      restorePersonalNote,
+      saveNoteLabel,
+      deleteNoteLabel,
     },
   }
 }

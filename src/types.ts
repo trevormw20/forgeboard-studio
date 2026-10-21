@@ -277,6 +277,30 @@ export interface InboxAutomation {
   errorCount: number
 }
 
+export interface PersonalNote {
+  id: string
+  projectId?: string
+  parentId?: string
+  title: string
+  body: string
+  color?: string
+  labelIds?: string[]
+  pinned?: boolean
+  createdAt: string
+  updatedAt: string
+  deletedAt?: string
+}
+
+export interface NoteLabel {
+  id: string
+  projectId?: string
+  name: string
+  color: string
+  createdAt: string
+  updatedAt: string
+  deletedAt?: string
+}
+
 export interface Workspace {
   schemaVersion: 1
   id: string
@@ -299,6 +323,8 @@ export interface Workspace {
   experiments?: ProjectExperiment[]
   handoffSummaries?: HandoffSummary[]
   inboxAutomation?: InboxAutomation
+  personalNotes?: PersonalNote[]
+  noteLabels?: NoteLabel[]
 }
 
 export interface ConnectionConfig {

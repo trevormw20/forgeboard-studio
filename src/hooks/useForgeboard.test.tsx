@@ -20,6 +20,38 @@ afterEach(cleanup)
 beforeEach(() => { memory.mutations.clear(); vi.mocked(fetchWorkspace).mockReset(); vi.mocked(putWorkspace).mockReset() })
 
 describe('review changes during sync', () => {
+  it('queues nested personal notes and labels and syncs them alongside another device’s notes', async () => {
+    const remote = createSeedWorkspace()
+    remote.personalNotes = [{ id: 'phone-note', projectId: remote.projects[1].id, title: 'Phone note', body: 'Keep separate', createdAt: remote.updatedAt, updatedAt: remote.updatedAt }]
+    vi.mocked(fetchWorkspace).mockResolvedValue({ workspace: remote, sha: 'sha' })
+    vi.mocked(putWorkspace).mockResolvedValue('notes-sha')
+    const { result } = renderHook(() => useForgeboard())
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    let root = '', child = '', label = ''
+    act(() => {
+      label = result.current.actions.saveNoteLabel({ name: 'Research', color: '#fa3' })
+      root = result.current.actions.addPersonalNote({ projectId: remote.projects[0].id, title: 'Desktop note', body: '', labelIds: [label] })
+      child = result.current.actions.addPersonalNote({ projectId: remote.projects[0].id, parentId: root, title: 'Sub-note', body: 'Nested detail' })
+      result.current.actions.updatePersonalNote(root, { body: 'Changed offline', color: '#123456' })
+    })
+    await waitFor(() => expect(memory.mutations.size).toBe(4))
+    await waitFor(() => expect(result.current.syncMeta.dirty).toBe(true))
+    await act(async () => { await result.current.actions.updateConnection(config) })
+    const uploaded = vi.mocked(putWorkspace).mock.calls[0][1]
+    expect(uploaded.personalNotes).toHaveLength(3)
+    expect(uploaded.personalNotes?.find((note) => note.id === root)).toMatchObject({ body: 'Changed offline', color: '#123456', labelIds: [label] })
+    expect(uploaded.personalNotes?.find((note) => note.id === child)?.parentId).toBe(root)
+    expect(uploaded.noteLabels?.[0]).toMatchObject({ name: 'Research', color: '#ffaa33' })
+    expect(result.current.syncMeta.pendingWrites).toBe(0)
+    act(() => { result.current.actions.deletePersonalNote(root) })
+    expect(result.current.workspace.personalNotes?.filter((note) => note.deletedAt)).toHaveLength(2)
+    act(() => { result.current.actions.restorePersonalNote(root); result.current.actions.deleteNoteLabel(label) })
+    expect(result.current.workspace.personalNotes?.find((note) => note.id === child)?.deletedAt).toBeUndefined()
+    expect(result.current.workspace.noteLabels?.[0].deletedAt).toBeTruthy()
+    const before = result.current.workspace
+    expect(() => result.current.actions.updatePersonalNote(child, { projectId: remote.projects[1].id })).toThrow(/same project/)
+    expect(result.current.workspace).toBe(before)
+  })
   it('downloads new remote summaries without uploading a no-op workspace on each poll', async () => {
     const remote = createSeedWorkspace()
     vi.mocked(fetchWorkspace).mockResolvedValue({ workspace: remote, sha: 'sha' })

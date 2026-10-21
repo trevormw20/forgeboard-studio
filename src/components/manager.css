@@ -4,19 +4,19 @@
 .manager-intro p { color: var(--muted); font-size: 13px; margin-bottom: 0; }
 .manager-day { display: flex; gap: 10px; flex-wrap: wrap; }
 .manager-day label { display: grid; gap: 7px; font-size: 11px; color: var(--muted); }
-.manager-day select { min-height: 42px; padding: 0 10px; background: #141b17; border: 1px solid #3c4a34; border-radius: 8px; color: #e3efcf; font-size: 12px; }
-.manager-brief, .momentum-card, .manager-reminders { display: flex; gap: 14px; padding: 20px; border: 1px solid #33422a; border-radius: 14px; background: linear-gradient(120deg, #1b2519, #121619); }
-.manager-brief > svg, .momentum-card > svg, .manager-reminders > svg { color: var(--lime); flex-shrink: 0; }
-.manager-brief p, .momentum-card p { font-size: 14px; line-height: 1.65; margin: 8px 0; color: #dce5d6; }
-.manager-brief small, .momentum-card small { color: #9aa891; font-size: 11px; }
+.manager-day select { min-height: 44px; padding: 0 10px; background: #152130; border: 1px solid #3e5369; border-radius: 8px; color: #d1e2f6; font-size: 12px; }
+.manager-brief, .momentum-card, .manager-reminders { display: flex; gap: 14px; padding: 20px; border: 1px solid #344e68; border-radius: 14px; background: linear-gradient(120deg, #1a2a3e, #151e2b); }
+.manager-brief > svg, .momentum-card > svg, .manager-reminders > svg { color: var(--accent); flex-shrink: 0; }
+.manager-brief p, .momentum-card p { font-size: 14px; line-height: 1.75; margin: 8px 0; color: #d5e1ee; }
+.manager-brief small, .momentum-card small { color: #a2b2c5; font-size: 11px; }
 .manager-brief strong, .momentum-card strong { font-size: 14px; }
 .manager-reminders { background: #252017; border-color: #5d492a; }
 .manager-reminders button { display: flex; align-items: center; gap: 9px; padding: 9px 0; text-align: left; border: 0; background: transparent; color: #f5d5aa; }
 .next-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 13px; }
 .next-card { min-width: 0; padding: 18px; display: flex; flex-direction: column; border: 1px solid #333b43; border-radius: 14px; background: linear-gradient(140deg, #1b2229, #13171c); }
-.next-card:first-child { border-color: #607642; background: linear-gradient(140deg, #222d1d, #141a16); }
+.next-card:first-child { border-color: #457f81; background: linear-gradient(140deg, #1b343d, #14232c); }
 .next-card-top { display: flex; gap: 8px; align-items: center; font-size: 11px; color: #b4beca; flex-wrap: wrap; }
-.next-number { width: 23px; height: 23px; display: grid; place-items: center; background: var(--lime); color: var(--lime-ink); border-radius: 7px; font-weight: 800; }
+.next-number { width: 25px; height: 25px; display: grid; place-items: center; background: #294958; color: #c1e6e6; border: 1px solid #467483; border-radius: 7px; font-weight: 800; }
 .next-card-top small { margin-left: auto; display: flex; align-items: center; gap: 3px; color: var(--muted); }
 .next-card h3 { font-size: 16px; line-height: 1.5; margin: 18px 0 8px; overflow-wrap: anywhere; }
 .next-card p { color: #a7b3be; font-size: 12px; line-height: 1.6; margin: 0 0 18px; overflow-wrap: anywhere; }
@@ -29,9 +29,16 @@
 .manager-home li, .review-body li { color: #aab7c5; font-size: 13px; line-height: 1.7; }
 .manager-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
 .manager-tabs button { display: flex; align-items: center; gap: 7px; min-height: 42px; padding: 8px 12px; border-radius: 9px; background: #13181e; color: #98a8b9; border: 1px solid #2d3742; font-size: 12px; }
-.manager-tabs button[aria-pressed='true'] { background: #233021; color: #daecc8; border-color: #4d653e; }
+.manager-tabs button[aria-pressed='true'] { background: #243b52; color: #d3e7ff; border-color: #52799e; }
 .manager-tabs span { font-size: 11px; }
 .manager-queue-list { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.review-queue { min-width: 0; padding: 0 16px; border: 1px solid var(--line); border-radius: 12px; background: #141e2b; }
+.review-queue > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 56px; font-size: 13px; font-weight: 600; list-style: none; }
+.review-queue > summary::before { content: '+'; font-size: 19px; color: var(--accent); }
+.review-queue[open] > summary::before { content: '−'; }
+.review-queue > summary > span:first-child { flex: 1; }
+.review-queue > summary > span:last-child { font-size: 11px; color: var(--muted); font-weight: 400; }
+.review-queue[open] { padding-bottom: 16px; }
 .manager-queue-item { width: 100%; min-height: 74px; display: flex; align-items: center; gap: 13px; padding: 14px; background: var(--panel); border: 0; border-bottom: 1px solid var(--line); color: var(--text); text-align: left; }
 .manager-queue-item:hover { background: #1b2229; }
 .manager-queue-item > span:nth-child(2) { flex: 1; min-width: 0; }
@@ -45,8 +52,8 @@
 .connect-chats textarea { width: 100%; margin: 10px 0; padding: 12px; color: #c5d4e4; background: #0b1016; border: 1px solid #2d3d50; border-radius: 8px; font-size: 12px; line-height: 1.6; resize: vertical; }
 .connect-chats a, .manager-notifications a { color: #b9caff; font-size: 13px; overflow-wrap: anywhere; }
 .review-body { padding: 20px; display: grid; gap: 18px; }
-.review-purpose { padding: 15px; background: #18211b; border: 1px solid #344b39; border-radius: 10px; }
-.review-purpose p { margin: 7px 0; font-size: 13px; line-height: 1.65; color: #bfccbe; }
+.review-purpose { padding: 15px; background: #182832; border: 1px solid #345364; border-radius: 10px; }
+.review-purpose p { margin: 7px 0; font-size: 13px; line-height: 1.65; color: #c2d3dd; }
 .review-purpose strong { font-size: 13px; }
 .preserve-lines { white-space: pre-wrap; }
 .source-reference { margin: 0; display: flex; gap: 7px; color: #9cadd0; overflow-wrap: anywhere; font-size: 12px; }
@@ -90,7 +97,7 @@
 .state-blocked { background: #492a2b; color: #ffb9b2; }
 .state-done { background: #263e27; color: #c7eeb8; }
 .checklist-measure { color: var(--muted); font-size: 11px; }
-.progress-project progress, .experiment-card progress { display: block; height: 7px; width: 100%; accent-color: #a6d468; }
+.progress-project progress, .experiment-card progress { display: block; height: 7px; width: 100%; accent-color: var(--teal); }
 .project-chat { padding: 13px 0; border-top: 1px solid #2b3741; margin-top: 10px; }
 .chat-status-line { display: flex; justify-content: space-between; gap: 9px; flex-wrap: wrap; align-items: center; }
 .chat-status-line strong { font-size: 13px; overflow-wrap: anywhere; }
@@ -107,11 +114,11 @@
 .project-chat .chat-source { color: #788b9d; font-size: 10px; }
 .project-chat > .text-button { min-height: 36px; }
 .relay-state { display: flex; align-items: flex-start; gap: 7px; color: #c1b1e4; font-size: 11px; line-height: 1.6; margin: 8px 0; }
-.experiment-panel { border-color: #45402a; background: linear-gradient(125deg, #1c2016, #10171c); }
-.experiment-panel > p { color: #abb7a1; font-size: 13px; line-height: 1.7; }
+.experiment-panel { border-color: #49435e; background: linear-gradient(125deg, #232335, #151d29); }
+.experiment-panel > p { color: #b5b2ca; font-size: 13px; line-height: 1.7; }
 .experiment-form { padding: 15px 0; }
 .experiment-form > form { display: grid; gap: 10px; }
-.experiment-card { padding: 17px; border: 1px solid #3c4737; border-radius: 10px; margin-top: 14px; background: #141c17; }
+.experiment-card { padding: 17px; border: 1px solid #45415a; border-radius: 10px; margin-top: 14px; background: #1b2030; }
 .experiment-card > .text-button { min-height: 40px; }
 .experiment-card summary { font-size: 12px; }
 .handoff-inbox { padding: 20px; min-width: 0; border: 1px solid #364c53; border-radius: 14px; background: linear-gradient(125deg, #142226, #10161c); }
@@ -126,7 +133,7 @@
 .handoff-next strong { font-size: 11px; color: #b9d8cd; }
 .handoff-next p { margin: 4px 0 10px; }
 .handoff-card small { display: block; color: #839aa7; font-size: 10px; line-height: 1.7; overflow-wrap: anywhere; margin: 10px 0; }
-.handoff-card .handoff-live { color: #c6dca4; font-size: 11px; }
+.handoff-card .handoff-live { color: #afd9d1; font-size: 11px; }
 .handoff-card button { margin-top: 5px; max-width: 100%; text-align: left; }
 .older-handoffs { margin-top: 14px; }
 .desktop-inbox-setup { padding: 14px; margin: 14px 0; background: #152127; border: 1px solid #344b54; border-radius: 10px; }
