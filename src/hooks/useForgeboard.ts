@@ -29,6 +29,8 @@ import type {
   SyncMeta,
   TaskColor,
   Workspace,
+  ManagerSettings,
+  WorkStatus,
 } from '../types'
 
 const defaultConnection: ConnectionConfig = {
@@ -264,6 +266,7 @@ export function useForgeboard() {
       if (task.completedAt) {
         task.completedAt = undefined
       } else {
+        if (task.subtasks?.some((step) => !step.deletedAt && !step.completedAt)) return
         task.completedAt = now
         draft.activity.push({ id: createId('event'), type: 'completed', at: now, projectId: task.projectId, taskId: task.id, title: task.title })
         const occurrence = task.scheduledAt ?? task.dueAt
@@ -315,6 +318,10 @@ export function useForgeboard() {
       const subtask = task?.subtasks?.find((item) => item.id === subtaskId)
       if (!task || !subtask) return
       subtask.completedAt = subtask.completedAt ? undefined : now
+      if (subtask.completedAt) {
+        subtask.blockedReason = undefined
+        draft.activity.push({ id: createId('event'), type: 'subtask-completed', at: now, projectId: task.projectId, taskId, title: subtask.title, details: task.title })
+      }
       subtask.updatedAt = now
       task.updatedAt = now
       task.touchedAt = now
@@ -328,6 +335,31 @@ export function useForgeboard() {
       task.color = color
       task.updatedAt = now
       task.touchedAt = now
+    })
+  }, [commit])
+
+  const updateManager = useCallback((settings: Partial<Pick<ManagerSettings, 'energy' | 'dailyMinutes' | 'focusTaskId'>>) => {
+    commit('manager.update', 'manager', (draft, now) => {
+      draft.manager = { id: 'manager', energy: 'steady', dailyMinutes: 60, ...draft.manager, ...settings, updatedAt: now }
+    })
+  }, [commit])
+
+  const updateWork = useCallback((taskId: string, input: { workStatus?: WorkStatus; reviewAt?: string; reviewNotes?: string; estimateMinutes?: number }) => {
+    commit('task.review', taskId, (draft, now) => {
+      const task = draft.tasks.find((item) => item.id === taskId)
+      if (!task) return
+      Object.assign(task, input, { updatedAt: now, touchedAt: now })
+    })
+  }, [commit])
+
+  const blockSubtask = useCallback((taskId: string, subtaskId: string, reason: string) => {
+    commit('subtask.block', taskId, (draft, now) => {
+      const task = draft.tasks.find((item) => item.id === taskId)
+      const step = task?.subtasks?.find((item) => item.id === subtaskId)
+      if (!task || !step) return
+      step.blockedReason = reason.trim() || undefined
+      step.updatedAt = now
+      task.updatedAt = now
     })
   }, [commit])
 
@@ -412,6 +444,9 @@ export function useForgeboard() {
       toggleTask,
       addSubtask,
       toggleSubtask,
+      blockSubtask,
+      updateManager,
+      updateWork,
       setTaskColor,
       rescheduleTask,
       addMilestone,

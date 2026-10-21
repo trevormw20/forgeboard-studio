@@ -1,10 +1,13 @@
-import { BOARD_DEFINITIONS, type BoardKey, type StartingPriority, type Workspace } from '../types'
+import { BOARD_DEFINITIONS, type BoardKey, type HandoffContext, type StartingPriority, type Workspace } from '../types'
 import { createProject, createTask } from '../seed'
 
 export interface TaskSubmission {
   format: 'forgeboard-task'; version: 1; id: string; project: string; date: string
   summary: string; notes?: string; board?: BoardKey; priority?: StartingPriority
   subtasks: { id: string; title: string }[]
+  handoff?: HandoffContext
+  reviewAt?: string
+  estimateMinutes?: number
 }
 
 export function parseSubmission(text: string): TaskSubmission {
@@ -19,6 +22,15 @@ export function parseSubmission(text: string): TaskSubmission {
   if (value.board && !BOARD_DEFINITIONS.some((board) => board.key === value.board)) throw new Error('Unknown board.')
   if (value.priority && !['low', 'medium', 'high'].includes(value.priority)) throw new Error('Unknown priority.')
   if (value.notes !== undefined && (typeof value.notes !== 'string' || value.notes.length > 20_000)) throw new Error('Invalid notes.')
+  if (value.reviewAt !== undefined && (typeof value.reviewAt !== 'string' || !/^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:\d{2})$/.test(value.reviewAt) || !Number.isFinite(Date.parse(value.reviewAt)))) throw new Error('reviewAt needs a date and time with a timezone.')
+  if (value.estimateMinutes !== undefined && (!Number.isInteger(value.estimateMinutes) || value.estimateMinutes < 1 || value.estimateMinutes > 480)) throw new Error('Estimate must be 1–480 minutes.')
+  if (value.handoff !== undefined) {
+    const handoff = value.handoff
+    if (!handoff || !['codex', 'claude-code', 'other'].includes(handoff.agent)) throw new Error('Invalid handoff agent.')
+    if (typeof handoff.review !== 'string' || !handoff.review.trim() || handoff.review.length > 4000) throw new Error('Explain what the human should review.')
+    if (!Array.isArray(handoff.completedWork) || handoff.completedWork.length > 50 || handoff.completedWork.some((entry) => typeof entry !== 'string' || !entry.trim() || entry.length > 1000)) throw new Error('Invalid completed work.')
+    for (const key of ['source', 'resume', 'relatedSubmissionId'] as const) if (handoff[key] !== undefined && (typeof handoff[key] !== 'string' || handoff[key]!.length > 4000)) throw new Error(`Invalid handoff ${key}.`)
+  }
   if (!Array.isArray(value.subtasks) || !value.subtasks.length || value.subtasks.length > 200) throw new Error('Include 1–200 subtasks.')
   const ids = new Set<string>()
   for (const step of value.subtasks) {
@@ -55,6 +67,10 @@ export function importSubmissions(workspace: Workspace, files: { path: string; t
       task.id = id
       task.notes = submission.notes
       task.submission = { id: submission.id, date: submission.date, sourceFile: file.path }
+      task.handoff = submission.handoff
+      task.workStatus = 'needs-review'
+      task.reviewAt = submission.reviewAt
+      task.estimateMinutes = submission.estimateMinutes
       task.subtasks = submission.subtasks.map((step) => ({ id: `${id}:${step.id}`, title: step.title.trim(), createdAt: now, updatedAt: now }))
       next.tasks.push(task)
       next.activity.push({ id: `event:${id}`, type: 'created', at: now, projectId: project.id, taskId: id, title: task.title, details: `Imported ${file.path}` })

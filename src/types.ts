@@ -56,6 +56,18 @@ export interface Subtask {
   updatedAt: string
   completedAt?: string
   deletedAt?: string
+  blockedReason?: string
+}
+
+export type WorkStatus = 'needs-review' | 'in-progress' | 'waiting' | 'blocked' | 'later'
+
+export interface HandoffContext {
+  agent: 'codex' | 'claude-code' | 'other'
+  source?: string
+  completedWork: string[]
+  review: string
+  resume?: string
+  relatedSubmissionId?: string
 }
 
 export interface Task {
@@ -81,6 +93,11 @@ export interface Task {
   color?: TaskColor
   subtasks?: Subtask[]
   submission?: { id: string; date: string; sourceFile: string }
+  handoff?: HandoffContext
+  workStatus?: WorkStatus
+  reviewAt?: string
+  estimateMinutes?: number
+  reviewNotes?: string
   rescheduleLog: RescheduleEntry[]
 }
 
@@ -121,7 +138,7 @@ export interface InboxNote {
 
 export interface ActivityEvent {
   id: string
-  type: 'created' | 'completed' | 'rescheduled' | 'stage-changed' | 'deadline-created' | 'conflict'
+  type: 'created' | 'completed' | 'subtask-completed' | 'rescheduled' | 'stage-changed' | 'deadline-created' | 'conflict'
   at: string
   projectId?: string
   taskId?: string
@@ -155,6 +172,18 @@ export interface AiState {
   suggestedTaskId?: string
   suggestedReason?: string
   lastRunStatus?: 'ai' | 'fallback' | 'not-configured' | 'error'
+  provider?: 'anthropic' | 'openai' | 'fallback'
+  encouragement?: string
+  contextHash?: string
+  lastAttemptAt?: string
+}
+
+export interface ManagerSettings {
+  id: 'manager'
+  updatedAt: string
+  energy: 'light' | 'steady' | 'focused'
+  dailyMinutes: number
+  focusTaskId?: string
 }
 
 export interface Workspace {
@@ -172,6 +201,7 @@ export interface Workspace {
   reports: WeeklyReport[]
   conflicts: ConflictRecord[]
   ai: AiState
+  manager?: ManagerSettings
 }
 
 export interface ConnectionConfig {

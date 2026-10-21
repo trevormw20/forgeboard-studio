@@ -108,9 +108,10 @@ export function mergeWorkspaces(base: Workspace | undefined, local: Workspace, r
     deadlines: mergeCollection('deadline', base?.deadlines ?? [], local.deadlines, remote.deadlines, conflicts),
     inboxNotes: mergeCollection('inbox-note', base?.inboxNotes ?? [], local.inboxNotes, remote.inboxNotes, conflicts),
     activity: unionById(local.activity, remote.activity) as Workspace['activity'],
-    reports: unionById(local.reports, remote.reports) as Workspace['reports'],
+    reports: (unionById(local.reports, remote.reports) as Workspace['reports']).filter((report) => Date.parse(report.createdAt) >= Date.now() - 30 * 86_400_000),
     conflicts: unionById(conflicts, []) as ConflictRecord[],
     ai: (local.ai.updatedAt ?? '') >= (remote.ai.updatedAt ?? '') ? local.ai : remote.ai,
+    manager: !local.manager ? remote.manager : !remote.manager ? local.manager : mergeEntity('manager', base?.manager, local.manager, remote.manager, conflicts) as Workspace['manager'],
   }
   return merged
 }

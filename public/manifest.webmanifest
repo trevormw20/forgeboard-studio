@@ -1,7 +1,7 @@
 {
-  "name": "Forgeboard — Game Studio Planner",
+  "name": "Forgeboard — Your Project Manager",
   "short_name": "Forgeboard",
-  "description": "A deadline-first game development tracker synced through a private GitHub repository.",
+  "description": "Agent handoffs, reviews, follow-ups, and next steps for all your projects, synced privately.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

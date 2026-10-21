@@ -1,4 +1,4 @@
-const CACHE = 'forgeboard-shell-v4'
+const CACHE = 'forgeboard-shell-v5'
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon.svg', './icon-192.png', './icon-512.png', './favicon.svg']
 
 self.addEventListener('install', (event) => {

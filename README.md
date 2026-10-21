@@ -1,5 +1,11 @@
 # Forgeboard
 
+Forgeboard is now the single project manager for work across Codex and Claude Code. The Today screen presents a small plan, human reviews, waiting/parked work, reminders, and factual recent wins. Use **Connect Codex & Claude Code → Copy setup prompt** to onboard a project. [Shared handoff protocol](FORGEBOARD_HANDOFF.md).
+
+Each agent can append the protocol to that project's AGENTS.md and CLAUDE.md with `node scripts/forgeboard-handoff.mjs install --project ABSOLUTE_FOLDER`; existing instructions are preserved. Agents publish one private inbox file per meaningful handoff and can read the project's current checked/blocked steps with `status --project NAME`. The app never silently reads other chats.
+
+Claude is configured only as `ANTHROPIC_API_KEY` in the private vault's GitHub Actions secrets. The existing OpenAI configuration remains a fallback when Claude isn't configured. A built-in plan works without either. Notifications are visible or best-effort while open; no email or guaranteed closed-app push.
+
 Forgeboard is a deadline-first, mobile-first game development planner. The public app is a static installable PWA. Planner state lives in one JSON file in a separate private GitHub repository and syncs through the GitHub Contents API.
 
 ## Automatic chat submissions
