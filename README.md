@@ -6,6 +6,8 @@ Each agent can append the protocol to that project's AGENTS.md and CLAUDE.md wit
 
 Claude is configured only as `ANTHROPIC_API_KEY` in the private vault's GitHub Actions secrets. The existing OpenAI configuration is a backup when Claude isn't configured or its request fails. Each configured provider gets at most one attempt per eligible refresh. A built-in plan works without either. Safe provider diagnostics appear below the brief; no raw API error bodies or credentials are copied into the workspace. Notifications are visible or best-effort while open; no email or guaranteed closed-app push.
 
+If the Claude key is not scoped to one workspace, also add private Actions secret `ANTHROPIC_WORKSPACE_ID` with its ID from [Claude Console → Workspaces](https://platform.claude.com/settings/workspaces). The backend sends the required workspace header. A workspace-scoped key does not need this extra value. [Official authentication reference](https://platform.claude.com/docs/en/manage-claude/authentication#select-a-workspace). Run the private **Check private Claude connection** workflow to test with no planner content. The normal private studio workflow uses OpenAI backup until Claude is ready.
+
 Forgeboard is a deadline-first, mobile-first game development planner. The public app is a static installable PWA. Planner state lives in one JSON file in a separate private GitHub repository and syncs through the GitHub Contents API.
 
 ## Automatic chat submissions
