@@ -233,6 +233,7 @@ export interface AiState {
   lastRunStatus?: 'ai' | 'fallback' | 'not-configured' | 'error'
   provider?: 'anthropic' | 'openai' | 'fallback'
   encouragement?: string
+  notice?: string
   contextHash?: string
   lastAttemptAt?: string
 }

@@ -4,7 +4,7 @@ Forgeboard is the single project manager for work across coding agents and deskt
 
 Each agent can append the protocol to that project's AGENTS.md and CLAUDE.md with `node scripts/forgeboard-handoff.mjs install --project ABSOLUTE_FOLDER`; existing instructions are preserved. Agents publish one private inbox file per meaningful handoff and can read the project's current checked/blocked steps with `status --project NAME`. The app never silently reads other chats.
 
-Claude is configured only as `ANTHROPIC_API_KEY` in the private vault's GitHub Actions secrets. The existing OpenAI configuration remains a fallback when Claude isn't configured. A built-in plan works without either. Notifications are visible or best-effort while open; no email or guaranteed closed-app push.
+Claude is configured only as `ANTHROPIC_API_KEY` in the private vault's GitHub Actions secrets. The existing OpenAI configuration is a backup when Claude isn't configured or its request fails. Each configured provider gets at most one attempt per eligible refresh. A built-in plan works without either. Safe provider diagnostics appear below the brief; no raw API error bodies or credentials are copied into the workspace. Notifications are visible or best-effort while open; no email or guaranteed closed-app push.
 
 Forgeboard is a deadline-first, mobile-first game development planner. The public app is a static installable PWA. Planner state lives in one JSON file in a separate private GitHub repository and syncs through the GitHub Contents API.
 
