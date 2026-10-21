@@ -20,6 +20,21 @@ afterEach(cleanup)
 beforeEach(() => { memory.mutations.clear(); vi.mocked(fetchWorkspace).mockReset(); vi.mocked(putWorkspace).mockReset() })
 
 describe('review changes during sync', () => {
+  it('downloads new remote summaries without uploading a no-op workspace on each poll', async () => {
+    const remote = createSeedWorkspace()
+    vi.mocked(fetchWorkspace).mockResolvedValue({ workspace: remote, sha: 'sha' })
+    const { result } = renderHook(() => useForgeboard())
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    await act(async () => { await result.current.actions.updateConnection(config) })
+    await act(async () => { await result.current.actions.syncNow() })
+    expect(putWorkspace).not.toHaveBeenCalled()
+    const incoming = structuredClone(remote)
+    incoming.handoffSummaries = [{ id: 'file', projectId: remote.projects[0].id, recordIds: ['review'], sourceFile: 'review.md', title: 'Review', inputHash: 'hash', receivedAt: remote.updatedAt, updatedAt: remote.updatedAt, state: 'ai', summary: 'Reported changes', needsYou: 'Test', nextStep: 'Open', attempts: 1 }]
+    vi.mocked(fetchWorkspace).mockResolvedValue({ workspace: incoming, sha: 'summary-sha' })
+    await act(async () => { await result.current.actions.syncNow() })
+    expect(result.current.workspace.handoffSummaries?.[0].summary).toBe('Reported changes')
+    expect(putWorkspace).not.toHaveBeenCalled()
+  })
   it('imports a desktop status and checklist together, retains checks on repeat, and rejects malformed batches atomically', async () => {
     const { result } = renderHook(() => useForgeboard())
     await waitFor(() => expect(result.current.ready).toBe(true))

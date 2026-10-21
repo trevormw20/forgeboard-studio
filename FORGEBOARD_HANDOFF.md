@@ -2,7 +2,7 @@
 
 Forgeboard is the owner's single project manager. Preserve human review and unfinished work across long conversations and across agents.
 
-For ordinary Claude or ChatGPT desktop conversations without project-folder/GitHub access, use **Track a chat → Copy chat setup** in Forgeboard, then paste the returned JSON update into **Paste chat update** (or select its JSON file). A JSON array can include both status and review-task objects. Never claim automatic publishing or access to another desktop conversation. See [desktop coordination](AGENT_COORDINATION.md#current-setup-claude-and-chatgpt-desktop-conversations).
+For Cowork or other chats with local-folder access, prefer the [desktop inbox bridge](DESKTOP_INBOX.md): save a new handoff file directly into the dedicated Forgeboard Inbox. The bridge publishes privately; Haiku summarizes the report without changing human checkmarks. Use **Track a chat → Copy folder setup** once per chat. This does not require GitHub access inside Cowork. Ordinary chats without file access can still use **Paste chat update** or select a downloaded JSON file. Never claim a file was saved or published unless confirmed.
 
 For chat progress and paired agent work, also read [AGENT_COORDINATION.md](AGENT_COORDINATION.md). Publish a status event when starting work, waiting on a human/peer, blocked, paused, or finishing your part. Request a peer handoff only for an explicitly configured route; retain approval gates and report what is actually finished.
 
@@ -21,7 +21,7 @@ node "C:/Users/maker/Documents/Codex/game develop schedualer/forgeboard-studio/s
 3. Include `handoff`: agent (`codex`, `claude-code`, or `other`), `completedWork` (what you actually finished), `review` (what the human should inspect and expected result), and `resume` (exact next action or where to find the build). `source` can identify the chat, branch, commit, or artifact. Do not embed credentials or signed links.
 4. Give each file a unique stable id. Retry the same content/id after an uncertain publish. For new work, use a new id. Set `relatedSubmissionId` when continuing a prior handoff. Never replace or remove previous uncompleted steps. Do not publish another checklist just to restate the same open work.
 5. Estimate the HUMAN review effort in `estimateMinutes` (1–480). Optional `reviewAt` is a real ISO date/time with timezone, only when a check-in was requested or agreed. Do not manufacture deadlines. Keep medium priority unless evidence supports another value.
-6. Publish only this file to `data/task-inbox/<id>.json` in private `trevormw20/forgeboard-studio-vault`, branch `main`. Use existing authorized GitHub CLI/API or an isolated Git checkout. Never directly overwrite `data/workspace.json`. Never store planner data in the public app repository.
+6. Save this file into the dedicated local Forgeboard Inbox when its bridge is configured, or publish to `data/task-inbox/<id>.json` in private `trevormw20/forgeboard-studio-vault`, branch `main` using existing authorized GitHub CLI/API. Do not use both paths for the same handoff. Never directly overwrite `data/workspace.json` or store planner data in the public app repository. A local save is queued, not proof of remote delivery.
 7. Confirm the committed file exists. In your reply, state what needs the human, the parent summary, and whether publishing succeeded. On failure, keep the local file and name the access problem. Do not claim the app was updated merely because a local file exists.
 
 ## Helper commands

@@ -116,6 +116,12 @@ export function mergeWorkspaces(base: Workspace | undefined, local: Workspace, r
     agentEvents: unionById(local.agentEvents ?? [], remote.agentEvents ?? []) as Workspace['agentEvents'],
     relayReceipts: unionById((local.relayReceipts ?? []).map((item) => ({ ...item, updatedAt: item.at })), (remote.relayReceipts ?? []).map((item) => ({ ...item, updatedAt: item.at }))) as Workspace['relayReceipts'],
     experiments: mergeCollection('experiment', base?.experiments ?? [], local.experiments ?? [], remote.experiments ?? [], conflicts),
+    handoffSummaries: mergeCollection('handoff-summary', base?.handoffSummaries ?? [], local.handoffSummaries ?? [], remote.handoffSummaries ?? [], conflicts),
+    inboxAutomation: (local.inboxAutomation?.updatedAt ?? '') > (remote.inboxAutomation?.updatedAt ?? '') ? local.inboxAutomation : remote.inboxAutomation,
   }
   return merged
+}
+
+export function sameWorkspaceContent(left: Workspace, right: Workspace): boolean {
+  return JSON.stringify({ ...left, updatedAt: undefined }) === JSON.stringify({ ...right, updatedAt: undefined })
 }

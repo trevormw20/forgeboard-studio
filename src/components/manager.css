@@ -114,6 +114,26 @@
 .experiment-card { padding: 17px; border: 1px solid #3c4737; border-radius: 10px; margin-top: 14px; background: #141c17; }
 .experiment-card > .text-button { min-height: 40px; }
 .experiment-card summary { font-size: 12px; }
+.handoff-inbox { padding: 20px; min-width: 0; border: 1px solid #364c53; border-radius: 14px; background: linear-gradient(125deg, #142226, #10161c); }
+.handoff-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
+.handoff-card { min-width: 0; padding: 16px; border: 1px solid #324750; background: #131d24; border-radius: 11px; }
+.handoff-card header { display: flex; gap: 8px; justify-content: space-between; flex-wrap: wrap; font-size: 12px; }
+.handoff-label { font-size: 10px; padding: 4px 7px; border-radius: 5px; background: #3b3525; color: #e7cd9d; }
+.handoff-label.ai { color: #b5e3d4; background: #25443e; }
+.handoff-card h3 { margin: 12px 0 8px; font-size: 15px; overflow-wrap: anywhere; }
+.handoff-card p, .handoff-empty, .older-handoffs p, .desktop-inbox-setup p, .desktop-inbox-setup li { color: #a9bbc7; font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+.handoff-next { margin: 12px 0; padding-left: 12px; border-left: 2px solid #54897b; }
+.handoff-next strong { font-size: 11px; color: #b9d8cd; }
+.handoff-next p { margin: 4px 0 10px; }
+.handoff-card small { display: block; color: #839aa7; font-size: 10px; line-height: 1.7; overflow-wrap: anywhere; margin: 10px 0; }
+.handoff-card .handoff-live { color: #c6dca4; font-size: 11px; }
+.handoff-card button { margin-top: 5px; max-width: 100%; text-align: left; }
+.older-handoffs { margin-top: 14px; }
+.desktop-inbox-setup { padding: 14px; margin: 14px 0; background: #152127; border: 1px solid #344b54; border-radius: 10px; }
+.desktop-inbox-setup summary, .older-handoffs summary { font-size: 13px; cursor: pointer; }
+.desktop-inbox-setup ol { padding-left: 20px; }
+.desktop-inbox-setup code { display: block; padding: 12px; background: #0b1319; color: #bbd5da; border-radius: 7px; font-size: 11px; overflow-wrap: anywhere; white-space: normal; margin-bottom: 10px; }
+@media(max-width:680px) { .handoff-cards { grid-template-columns: 1fr; } .handoff-inbox { padding: 15px; } }
 @media(max-width:680px) { .progress-projects { grid-template-columns: 1fr; } .project-progress, .experiment-panel { padding: 15px; } .progress-filter { flex-direction: column; align-items: flex-start; } .status-control { width: 100%; margin-left: 0; grid-template-columns: auto 1fr; align-items: center; } .status-control select { width: 100%; } }
 @media(max-width:1080px) { .manager-intro { flex-direction: column; align-items: flex-start; } }
 @media(max-width:680px) { .next-cards { grid-template-columns: 1fr; } .manager-home { gap: 20px; } .manager-day { width: 100%; } .manager-day label { flex: 1; min-width: 120px; } .manager-day select { width: 100%; } .manager-tabs button { flex: 1; justify-content: center; } .manager-brief, .momentum-card { padding: 16px; } .review-body { padding: 15px; } .review-actions button { flex: 1; } }

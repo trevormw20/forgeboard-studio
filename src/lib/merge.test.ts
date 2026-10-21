@@ -1,8 +1,21 @@
 import { describe, expect, it } from 'vitest'
 import { createSeedWorkspace } from '../seed'
-import { mergeWorkspaces } from './merge'
+import { mergeWorkspaces, sameWorkspaceContent } from './merge'
 
 describe('workspace conflict merge', () => {
+  it('ignores no-op sync timestamps but detects real summary and checkbox changes', () => {
+    const base = createSeedWorkspace(), remote = structuredClone(base)
+    remote.updatedAt = '2030-01-01T00:00:00Z'
+    expect(sameWorkspaceContent(base, remote)).toBe(true)
+    remote.tasks[0].title = 'Changed'
+    expect(sameWorkspaceContent(base, remote)).toBe(false)
+    const local = structuredClone(base)
+    local.tasks[0].subtasks = [{ id: 'check', title: 'Review', createdAt: base.updatedAt, updatedAt: remote.updatedAt, completedAt: remote.updatedAt }]
+    remote.handoffSummaries = [{ id: 'handoff', projectId: remote.projects[0].id, sourceFile: 'review.md', recordIds: ['review'], title: 'Review', inputHash: 'hash', receivedAt: remote.updatedAt, updatedAt: remote.updatedAt, state: 'ai', summary: 'Reported changes', needsYou: 'Test', nextStep: 'Open', attempts: 1 }]
+    const merged = mergeWorkspaces(base, local, remote)
+    expect(merged.tasks[0].subtasks?.[0].completedAt).toBe(remote.updatedAt)
+    expect(merged.handoffSummaries?.[0].summary).toBe('Reported changes')
+  })
   it('keeps independent edits from two devices', () => {
     const base = createSeedWorkspace()
     const local = structuredClone(base)

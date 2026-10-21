@@ -5,9 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "npm run build:inbox && tsc -b && vite build",
+    "build:inbox": "node scripts/build-inbox.mjs",
     "lint": "oxlint",
-    "test": "vitest run && node --test scripts/handoff-checks.mjs scripts/relay-checks.mjs",
+    "test": "vitest run && node --test scripts/handoff-checks.mjs scripts/relay-checks.mjs scripts/desktop-checks.mjs",
     "test:watch": "vitest",
     "preview": "vite preview"
   },

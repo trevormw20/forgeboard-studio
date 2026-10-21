@@ -17,7 +17,7 @@ import { fetchWorkspace, fetchTaskInbox, GitHubSyncError, putWorkspace } from '.
 import { importSubmissions } from '../lib/taskInbox'
 import { applyCoordination } from '../lib/coordination'
 import { createId, isoNow } from '../lib/ids'
-import { mergeWorkspaces } from '../lib/merge'
+import { mergeWorkspaces, sameWorkspaceContent } from '../lib/merge'
 import { DEFAULT_ESCALATION } from '../lib/priority'
 import { routeNote } from '../lib/routing'
 import { createProject, createSeedWorkspace, createTask } from '../seed'
@@ -144,14 +144,14 @@ export function useForgeboard() {
         const importResult = importSubmissions(!base && pending === 0 && revisionRef.current === 0 ? remote : mergeWorkspaces(base, local, remote), inboxFiles, isoNow())
         const merged = importResult.workspace
         let finalSha = sha
-        if (pending > 0 || JSON.stringify(merged) !== JSON.stringify(remote)) {
+        if (pending > 0 || !sameWorkspaceContent(merged, remote)) {
           try {
             finalSha = await putWorkspace(config, merged, sha)
           } catch (error) {
             if (error instanceof GitHubSyncError && error.status === 409 && attempt < 3) continue
             throw error
           }
-        }
+        } else merged.updatedAt = remote.updatedAt
         const changedDuringWrite = workspaceRef.current !== local
         const displayed = changedDuringWrite ? mergeWorkspaces(local, workspaceRef.current, merged) : merged
         workspaceRef.current = displayed
@@ -185,7 +185,7 @@ export function useForgeboard() {
     document.addEventListener('visibilitychange', visible)
     window.addEventListener('online', online)
     window.addEventListener('offline', offline)
-    const timer = window.setInterval(() => { if (navigator.onLine) void syncNow() }, 120_000)
+    const timer = window.setInterval(() => { if (navigator.onLine && document.visibilityState === 'visible' && isConfigured(connectionRef.current)) void syncNow() }, 30_000)
     if (isConfigured(connectionRef.current) && navigator.onLine) void syncNow()
     return () => {
       window.removeEventListener('online', online)

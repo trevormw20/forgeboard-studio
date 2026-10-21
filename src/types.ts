@@ -246,6 +246,37 @@ export interface ManagerSettings {
   focusTaskId?: string
 }
 
+export interface HandoffSummary {
+  id: string
+  projectId: string
+  sourceFile: string
+  recordIds: string[]
+  title: string
+  inputHash: string
+  receivedAt: string
+  updatedAt: string
+  state: 'pending' | 'ai' | 'fallback'
+  summary: string
+  needsYou: string
+  nextStep: string
+  model?: string
+  provider?: 'anthropic'
+  generatedAt?: string
+  attempts: number
+  lastAttemptAt?: string
+  retryAfter?: string
+  warning?: string
+}
+
+export interface InboxAutomation {
+  updatedAt: string
+  summaryDay: string
+  summaryCalls: number
+  pending: number
+  lastReceivedAt?: string
+  errorCount: number
+}
+
 export interface Workspace {
   schemaVersion: 1
   id: string
@@ -266,6 +297,8 @@ export interface Workspace {
   agentEvents?: AgentStatusEvent[]
   relayReceipts?: RelayReceipt[]
   experiments?: ProjectExperiment[]
+  handoffSummaries?: HandoffSummary[]
+  inboxAutomation?: InboxAutomation
 }
 
 export interface ConnectionConfig {

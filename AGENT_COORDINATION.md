@@ -4,11 +4,11 @@ Forgeboard tracks each project's overall state separately from each chat's repor
 
 ## Current setup: Claude and ChatGPT desktop conversations
 
-The owner uses ordinary desktop conversations, not Claude Code CLI sessions. No conversation URL is required for this mode. An API key does not grant access to those existing conversations; **automatic delivery to them is not connected**.
+The owner uses Cowork with folder access as well as desktop conversations. No conversation URL is needed. Cowork can save directly to the dedicated [desktop inbox](DESKTOP_INBOX.md); this automates reporting INTO Forgeboard, not delivery of messages into existing chat windows. An API key does not control those windows.
 
-1. In Manager → Project & chat progress, choose **Track a chat**, select its project, and give it a recognizable role/name. Use **Copy chat setup** and paste that instruction once into the matching conversation.
-2. After meaningful work, the chat returns a JSON status and, when human review is needed, one parent task with individually checkable steps. Copy its JSON into **Paste chat update**, or select the downloaded JSON file. Arrays containing both formats are supported. Sync stores the result in the private vault.
-3. If the chat has real GitHub publishing access, it may publish individual files to the private inbox instead. Otherwise it must say that manual import is needed, never pretend a file was published.
+1. Start the desktop inbox bridge, grant Cowork access to only its dedicated inbox folder, and have it read FORGEBOARD_INSTRUCTIONS.md. In Manager → Project & chat progress, **Track a chat**, choose its project and real role/name, then use **Copy folder setup** once in that conversation.
+2. After meaningful work, the chat SAVES a JSON or structured Markdown file directly into that folder. Include status and, when human review is needed, one parent task with nested individually checkable steps. The bridge uploads it privately. Private Actions imports it and generates one Haiku summary per handoff; Forgeboard downloads results on sync. No repeated copy/paste is needed for file-enabled chats.
+3. Chats with GitHub access may still publish individual JSON files directly to the private inbox. Regular chats without file access need a download/manual JSON import. Never pretend a local save proves remote publication. Computer and bridge must stay on to upload; uploaded files can process with the browser closed.
 4. Copy an explicit peer handoff into the intended other conversation and attach the listed Markdown files if that conversation cannot read the folder. Updating a report does not prove the other conversation ran. Existing review checkmarks are never reset by re-importing a submission.
 
 Desktop providers use `agent: "claude"` or `"chatgpt"`; coding providers use `"codex"` or `"claude-code"`. Stable chat IDs keep project histories separate. Statuses can also be updated manually. The overall project status remains independent of any one chat finishing its part.
