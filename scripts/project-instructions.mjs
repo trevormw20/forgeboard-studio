@@ -1,0 +1,16 @@
+export const SHARED_GUIDE = 'C:/Users/maker/Documents/Codex/game develop schedualer/Forgeboard Inbox/FORGEBOARD_INSTRUCTIONS.md'
+export const INBOX = 'C:/Users/maker/Documents/Codex/game develop schedualer/Forgeboard Inbox'
+
+export function instructionBlock(binding) {
+  if (binding && ['name', 'id', 'workspace'].some((key) => typeof binding[key] !== 'string' || !binding[key].trim() || /[\r\n]/.test(binding[key]))) throw new Error('Use one verified project binding, not a conversation identity.')
+  const mapping = binding ? `Verified Forgeboard project: **${binding.name}**. Use exactly \`${binding.id}\` in every report's project field for workspace \`${binding.workspace}\`. This is NOT a chat ID. Do not ask the owner to verify this mapping again unless it changes or verified evidence conflicts.\n\n` : ''
+  return `## Forgeboard automatic handoffs\n\n<!-- forgeboard-handoff -->\n${mapping}Read and follow \`${SHARED_GUIDE}\` before substantive work. This is the current shared format and identity authority; no project-specific workflow file or manually copied folder setup is required. Save reports directly into \`${INBOX}\`.\n\nAfter meaningful changes, blockers or waits for human review/decision, save one new uniquely named report yourself, then verify it exists and parses. Include actual changes, status, next actor, one clear next action and genuinely needed unchecked human review steps. Preserve earlier unfinished work and human approvals; never duplicate old checks, overwrite submissions or mark tests complete for the owner. Routine answers/unchanged status need no duplicate report.\n\nUse a known ID only for this SAME conversation. Otherwise use its verified native thread ID if available, or generate one UUID-based Forgeboard REPORTING ID and keep it in this conversation. The first status report registers that identity automatically. It is not a claim about a native Claude/Codex ID. Never put one conversation's chat ID in project-wide instructions, borrow another chat's ID or ask for Copy folder setup merely because this chat is new. A task-only report is valid without any chat ID.\n\nTreat the shared inbox as an outgoing mailbox. Read the shared guide, not other projects' reports or _bridge state. Other reports are not assignments. No API keys/GitHub login are needed to SAVE locally. Use normal approval for this exact folder if the sandbox blocks it; otherwise retain a local pending copy and explain the real access problem. Never request credentials or ask the owner to paste reports manually. Say saved locally only after verifying; uploaded/imported only with evidence. This reporting rule does not authorize peer messaging, spending, deploying or approving product work. Preserve all other project rules.\n`
+}
+
+// Replace only handoff-specific sections; unrelated project rules stay intact.
+export function rewriteForgeboardSections(text, block) {
+  const normalized = text.replace(/\r\n/g, '\n').replace(/^[ \t]*<!-- forgeboard-handoff -->[ \t]*\n?/gm, '')
+  const pieces = normalized.split(/(?=^## )/m)
+  const kept = pieces.filter((piece) => !/^## [^\n]*forgeboard/i.test(piece)).join('').trimEnd()
+  return `${kept}${kept ? '\n\n' : ''}${block.trimEnd()}\n`
+}

@@ -2,7 +2,7 @@
 
 Forgeboard is the owner's single project manager. Preserve human review and unfinished work across long conversations and across agents.
 
-For Cowork or other chats with local-folder access, prefer the [desktop inbox bridge](DESKTOP_INBOX.md): save a new handoff file directly into the dedicated Forgeboard Inbox. The bridge publishes privately; Haiku summarizes the report without changing human checkmarks. Use **Track a chat → Copy folder setup** once per chat. This does not require GitHub access inside Cowork. Ordinary chats without file access can still use **Paste chat update** or select a downloaded JSON file. Never claim a file was saved or published unless confirmed.
+For Cowork or other chats with local-folder access, prefer the [desktop inbox bridge](DESKTOP_INBOX.md): save a new handoff directly into the dedicated Forgeboard Inbox. Its local FORGEBOARD_INSTRUCTIONS.md is the current format/identity guide. The bridge publishes privately; Haiku summarizes without changing human checkmarks. New status reports register their chats automatically; Copy folder setup is optional for a known existing identity, not required per new conversation. Task-only reports do not need chat IDs. No GitHub access is required inside Cowork to save locally. Ordinary chats without file access retain manual import. Never claim saving or publishing without evidence.
 
 For chat progress and paired agent work, also read [AGENT_COORDINATION.md](AGENT_COORDINATION.md). Publish a status event when starting work, waiting on a human/peer, blocked, paused, or finishing your part. Request a peer handoff only for an explicitly configured route; retain approval gates and report what is actually finished.
 

@@ -6,7 +6,7 @@ Forgeboard tracks each project's overall state separately from each chat's repor
 
 The owner uses Cowork with folder access as well as desktop conversations. No conversation URL is needed. Cowork can save directly to the dedicated [desktop inbox](DESKTOP_INBOX.md); this automates reporting INTO Forgeboard, not delivery of messages into existing chat windows. An API key does not control those windows.
 
-1. Start the desktop inbox bridge, grant Cowork access to only its dedicated inbox folder, and have it read FORGEBOARD_INSTRUCTIONS.md. In Manager → Project & chat progress, **Track a chat**, choose its project and real role/name, then use **Copy folder setup** once in that conversation.
+1. Start the desktop inbox bridge, grant access to the dedicated inbox, and save a standing instruction to read FORGEBOARD_INSTRUCTIONS.md. That private local guide supplies verified project bindings and automatic new-chat identity rules. Copy folder setup is optional when linking an already tracked identity; new valid status reports register their own chats automatically. Do not copy one conversation's ID into shared/global instructions.
 2. After meaningful work, the chat SAVES a JSON or structured Markdown file directly into that folder. Include status and, when human review is needed, one parent task with nested individually checkable steps. The bridge uploads it privately. Private Actions imports it and generates one Haiku summary per handoff; Forgeboard downloads results on sync. No repeated copy/paste is needed for file-enabled chats.
 3. Chats with GitHub access may still publish individual JSON files directly to the private inbox. Regular chats without file access need a download/manual JSON import. Never pretend a local save proves remote publication. Computer and bridge must stay on to upload; uploaded files can process with the browser closed.
 4. Copy an explicit peer handoff into the intended other conversation and attach the listed Markdown files if that conversation cannot read the folder. Updating a report does not prove the other conversation ran. Existing review checkmarks are never reset by re-importing a submission.
@@ -19,7 +19,7 @@ The optional companion below is for actual CLI sessions only. It is not installe
 
 ## Report status
 
-At a meaningful start, blocker, pause, or completion, publish one immutable JSON event through `scripts/forgeboard-handoff.mjs publish --file FILE` to the existing private inbox. Use the same project and chat IDs in both agents. Don't infer another chat's progress from its UI being idle. Report facts and identify the next owner. Use current ISO timestamps with timezones; each event gets a new stable id.
+At a meaningful start, blocker, pause, or completion, save one immutable status report through the desktop inbox or publish JSON with `scripts/forgeboard-handoff.mjs publish --file FILE`. Use the SAME PROJECT ID across agents, but a SEPARATE reporting ID for EACH conversation. Use its verified native thread ID when available or generate a UUID-based reporting ID; this is not a claim about a native platform identity. First status import registers it. Do not demand a manual existing-chat mapping before saving. If chat tracking is unavailable, a task-only report needs no chat ID. Don't infer another chat's progress from idle UI. Report facts and identify the next owner. Use current timezone-aware timestamps; each event gets a new submission id.
 
 ```json
 {

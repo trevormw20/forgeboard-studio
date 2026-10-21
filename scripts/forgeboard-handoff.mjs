@@ -4,9 +4,9 @@ import { resolve, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { spawnSync } from 'node:child_process'
 import { parseCoordination } from '../shared/coordination.mjs'
+import { instructionBlock, rewriteForgeboardSections } from './project-instructions.mjs'
 
 const DEFAULT_REPO = 'trevormw20/forgeboard-studio-vault'
-const GUIDE = 'https://github.com/trevormw20/forgeboard-studio/blob/main/FORGEBOARD_HANDOFF.md'
 export function validate(value, bytes) {
   if (['forgeboard-status', 'forgeboard-relay-result', 'forgeboard-project'].includes(value?.format)) {
     if (bytes > 200000) throw new Error('File exceeds 200 KB.')
@@ -58,16 +58,16 @@ export async function publish(file, repo = DEFAULT_REPO) {
 export async function install(directory) {
   const root = resolve(directory)
   if (!(await stat(root)).isDirectory()) throw new Error('Project must be an existing directory.')
-  const marker = '<!-- forgeboard-handoff -->'
-  const block = `\n\n${marker}\n## Forgeboard project handoffs\n\nUse ${GUIDE} for this project. At each meaningful handoff requiring human review, tests, decisions, or follow-up, publish one dated checklist to the private Forgeboard vault. Retain unfinished checks, read the current project review state before follow-up work, and report publishing failures. Both Codex and Claude Code must use the same project id/name. Keep credentials out of files and replies.\n`
+  const block = instructionBlock()
   const results = []
   for (const name of ['AGENTS.md', 'CLAUDE.md']) {
     const file = join(root, name)
     let existing = ''
     try { existing = await readFile(file, 'utf8') } catch (error) { if (error.code !== 'ENOENT') throw error }
-    if (existing.includes(marker)) { results.push(`${name}: already installed`); continue }
-    await writeFile(file, existing + block)
-    results.push(`${name}: handoff instructions appended`)
+    const updated = rewriteForgeboardSections(existing, block)
+    if (updated === existing) { results.push(`${name}: already installed`); continue }
+    await writeFile(file, updated)
+    results.push(`${name}: shared handoff instructions installed/updated`)
   }
   return results.join('\n')
 }

@@ -6,7 +6,7 @@ The Pages app and cross-device vault remain unchanged. The local companion adds 
 
 Run `node scripts/forgeboard-desktop.mjs start`. The default inbox is **Forgeboard Inbox** next to the public app checkout, never inside it. On this machine, the parent folder also has Start Forgeboard, Stop Forgeboard Inbox, and Forgeboard Inbox Status `.cmd` launchers. Start opens the existing Pages app; `--no-open` starts only the bridge. Restart after reboot; no automatic login startup is installed.
 
-Grant Cowork only that dedicated inbox folder, ask it to read FORGEBOARD_INSTRUCTIONS.md, then use **Track a chat → Copy folder setup** in Forgeboard once per actual chat. Existing project access is independent of inbox access. Regular chats without file access still need a file download/manual import.
+Grant Cowork only that dedicated inbox folder and save a standing instruction to read FORGEBOARD_INSTRUCTIONS.md. The private local guide contains verified project mappings. Each new conversation can use its own verified native thread ID or generate a UUID reporting ID; its first valid status report registers it automatically. Reuse an existing supplied ID only for that same conversation. **Track a chat → Copy folder setup** is optional, not required for every new chat. Task-only reports need no chat ID. Existing project access is independent of inbox access. Regular chats without file access still need a file download/manual import. Changing a local CLAUDE.md does not edit account-level Claude UI instructions; save the short launcher there once if that is the desired scope.
 
 ```text
 node scripts/forgeboard-desktop.mjs start
