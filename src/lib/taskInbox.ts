@@ -1,5 +1,7 @@
 import { BOARD_DEFINITIONS, type BoardKey, type HandoffContext, type StartingPriority, type Workspace } from '../types'
 import { createProject, createTask } from '../seed'
+import { parseCoordination } from '../../shared/coordination.mjs'
+import { applyCoordination } from './coordination'
 
 export interface TaskSubmission {
   format: 'forgeboard-task'; version: 1; id: string; project: string; date: string
@@ -26,7 +28,7 @@ export function parseSubmission(text: string): TaskSubmission {
   if (value.estimateMinutes !== undefined && (!Number.isInteger(value.estimateMinutes) || value.estimateMinutes < 1 || value.estimateMinutes > 480)) throw new Error('Estimate must be 1–480 minutes.')
   if (value.handoff !== undefined) {
     const handoff = value.handoff
-    if (!handoff || !['codex', 'claude-code', 'other'].includes(handoff.agent)) throw new Error('Invalid handoff agent.')
+    if (!handoff || !['codex', 'claude-code', 'claude', 'chatgpt', 'other'].includes(handoff.agent)) throw new Error('Invalid handoff agent.')
     if (typeof handoff.review !== 'string' || !handoff.review.trim() || handoff.review.length > 4000) throw new Error('Explain what the human should review.')
     if (!Array.isArray(handoff.completedWork) || handoff.completedWork.length > 50 || handoff.completedWork.some((entry) => typeof entry !== 'string' || !entry.trim() || entry.length > 1000)) throw new Error('Invalid completed work.')
     for (const key of ['source', 'resume', 'relatedSubmissionId'] as const) if (handoff[key] !== undefined && (typeof handoff[key] !== 'string' || handoff[key]!.length > 4000)) throw new Error(`Invalid handoff ${key}.`)
@@ -47,8 +49,16 @@ export function importSubmissions(workspace: Workspace, files: { path: string; t
   const next = structuredClone(workspace)
   const errors: string[] = []
   let added = 0
+  let updates = 0
   for (const file of files) {
     try {
+      if (new TextEncoder().encode(file.text).length > 200_000) throw new Error('File exceeds 200 KB.')
+      const raw = JSON.parse(file.text)
+      if (['forgeboard-status', 'forgeboard-relay-result', 'forgeboard-project'].includes(raw?.format)) {
+        const candidate = structuredClone(next)
+        if (applyCoordination(candidate, parseCoordination(raw), now)) { Object.assign(next, candidate); updates++ }
+        continue
+      }
       const submission = parseSubmission(file.text)
       const id = `submission:${submission.id}`
       if (next.tasks.some((task) => task.id === id)) continue
@@ -78,5 +88,5 @@ export function importSubmissions(workspace: Workspace, files: { path: string; t
     } catch (error) { errors.push(`${file.path}: ${error instanceof Error ? error.message : 'Invalid file.'}`) }
   }
   if (added) next.updatedAt = now
-  return { workspace: next, added, errors }
+  return { workspace: next, added, updates, errors }
 }

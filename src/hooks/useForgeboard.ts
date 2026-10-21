@@ -15,6 +15,7 @@ import {
 } from '../lib/db'
 import { fetchWorkspace, fetchTaskInbox, GitHubSyncError, putWorkspace } from '../lib/github'
 import { importSubmissions } from '../lib/taskInbox'
+import { applyCoordination } from '../lib/coordination'
 import { createId, isoNow } from '../lib/ids'
 import { mergeWorkspaces } from '../lib/merge'
 import { DEFAULT_ESCALATION } from '../lib/priority'
@@ -32,6 +33,9 @@ import type {
   Workspace,
   ManagerSettings,
   WorkStatus,
+  AgentProgress,
+  AgentChat,
+  ProjectExperiment,
 } from '../types'
 
 const defaultConnection: ConnectionConfig = {
@@ -155,7 +159,7 @@ export function useForgeboard() {
         await Promise.all([saveCachedWorkspace(displayed), saveBaseWorkspace(merged), saveSha(finalSha)])
         await clearMutations(acknowledgedIds)
         const remaining = await countMutations()
-        setInboxStatus(inboxError ? `Inbox: ${inboxError}` : importResult.errors.length ? `Inbox needs attention: ${importResult.errors.join(' · ')}` : importResult.added ? `Imported ${importResult.added} submission${importResult.added === 1 ? '' : 's'} with checklists.` : 'Inbox checked. No new submissions.')
+        setInboxStatus(inboxError ? `Inbox: ${inboxError}` : importResult.errors.length ? `Inbox needs attention: ${importResult.errors.join(' · ')}` : importResult.added || importResult.updates ? `Imported ${importResult.added} checklists and ${importResult.updates} chat updates.` : 'Inbox checked. No new submissions.')
         const lastSyncedAt = isoNow()
         setSyncMeta({ dirty: changedDuringWrite || remaining > 0, syncing: false, online: true, pendingWrites: remaining, lastSyncedAt })
         return true
@@ -235,6 +239,68 @@ export function useForgeboard() {
       if (!project) return
       project.settings.collapsedBoards[board] = collapsed
       project.updatedAt = now
+    })
+  }, [commit])
+
+  const setProjectWorkState = useCallback((projectId: string, workState?: AgentProgress) => {
+    commit('project.work-state', projectId, (draft, now) => {
+      const project = draft.projects.find((item) => item.id === projectId)
+      if (project) Object.assign(project, { workState, updatedAt: now })
+    })
+  }, [commit])
+
+  const setChatPaused = useCallback((chatId: string, paused: boolean) => {
+    commit('chat.pause', chatId, (draft, now) => {
+      const chat = draft.agentChats?.find((item) => item.id === chatId)
+      if (chat) Object.assign(chat, { paused, updatedAt: now })
+    })
+  }, [commit])
+
+  const saveChatReport = useCallback((input: Pick<AgentChat, 'projectId' | 'name' | 'agent' | 'status' | 'summary' | 'nextAction'> & { id?: string }) => {
+    if (!input.name.trim() || !input.summary.trim()) return
+    commit('chat.report', input.id, (draft, now) => {
+      if (!draft.projects.some((project) => project.id === input.projectId && !project.deletedAt)) return
+      applyCoordination(draft, { format: 'forgeboard-status', version: 1, id: createId('status'), project: input.projectId, at: now, chat: { id: input.id ?? createId('chat'), name: input.name.trim(), agent: input.agent, source: 'Manually recorded in Forgeboard; not a live connection' }, status: input.status, summary: input.summary.trim(), nextAction: input.nextAction?.trim() || undefined }, now)
+    })
+  }, [commit])
+
+  const importChatUpdate = useCallback((text: string) => {
+    if (new TextEncoder().encode(text).length > 200_000) throw new Error('Update exceeds 200 KB. Ask for a shorter handoff.')
+    const value = JSON.parse(text.trim().replace(/^```(?:json)?\s*|\s*```$/g, ''))
+    const updates = Array.isArray(value) ? value : [value]
+    if (!updates.length || updates.length > 25) throw new Error('Paste 1–25 update objects at a time.')
+    const files = updates.map((update, index) => ({ path: `desktop-chat-update-${index + 1}.json`, text: JSON.stringify(update) }))
+    const preview = importSubmissions(workspaceRef.current, files, isoNow())
+    if (preview.errors.length) throw new Error(preview.errors.join(' '))
+    if (!preview.added && !preview.updates) return 'Already imported. Your saved checks are unchanged.'
+    commit('chat.import', undefined, (draft, now) => { Object.assign(draft, importSubmissions(draft, files, now).workspace) })
+    return `Saved ${preview.added} checklist(s) and ${preview.updates} status update(s). Sync will save them to your private vault.`
+  }, [commit])
+
+  const addExperiment = useCallback((input: Pick<ProjectExperiment, 'projectId' | 'hypothesis' | 'action' | 'target' | 'unit' | 'reviewDate' | 'decisionRule'>) => {
+    if (!input.hypothesis.trim() || !input.action.trim() || !input.decisionRule.trim() || !Number.isFinite(input.target) || input.target < 1 || !/^\d{4}-\d{2}-\d{2}$/.test(input.reviewDate) || !Number.isFinite(Date.parse(`${input.reviewDate}T00:00:00Z`)) || new Date(`${input.reviewDate}T00:00:00Z`).toISOString().slice(0, 10) !== input.reviewDate) return
+    const id = createId('experiment')
+    commit('experiment.create', id, (draft, now) => {
+      draft.experiments ??= []
+      draft.experiments.push({ ...input, id, observations: [], status: 'running', createdAt: now, updatedAt: now })
+    })
+  }, [commit])
+
+  const recordExperiment = useCallback((id: string, amount: number, evidence: string) => {
+    if (!Number.isFinite(amount) || amount < 0 || !evidence.trim()) return
+    commit('experiment.observe', id, (draft, now) => {
+      const experiment = draft.experiments?.find((item) => item.id === id)
+      if (!experiment) return
+      experiment.observations.push({ id: createId('observation'), at: now, amount, evidence: evidence.trim() })
+      experiment.updatedAt = now
+    })
+  }, [commit])
+
+  const decideExperiment = useCallback((id: string, status: 'continue' | 'adjust' | 'stop', conclusion: string) => {
+    if (!conclusion.trim()) return
+    commit('experiment.decide', id, (draft, now) => {
+      const experiment = draft.experiments?.find((item) => item.id === id)
+      if (experiment) Object.assign(experiment, { status, conclusion: conclusion.trim(), updatedAt: now })
     })
   }, [commit])
 
@@ -443,6 +509,13 @@ export function useForgeboard() {
       disconnect,
       addProject,
       setProjectStage,
+      setProjectWorkState,
+      setChatPaused,
+      saveChatReport,
+      importChatUpdate,
+      addExperiment,
+      recordExperiment,
+      decideExperiment,
       setBoardCollapsed,
       addTask,
       toggleTask,

@@ -1,6 +1,6 @@
 # Forgeboard
 
-Forgeboard is now the single project manager for work across Codex and Claude Code. The Today screen presents a small plan, human reviews, waiting/parked work, reminders, and factual recent wins. Use **Connect Codex & Claude Code → Copy setup prompt** to onboard a project. [Shared handoff protocol](FORGEBOARD_HANDOFF.md).
+Forgeboard is the single project manager for work across coding agents and desktop chats. The Today screen presents a small plan, human reviews, project/chat progress, waiting work, reminders, factual wins, and evidence-based experiment checkpoints. For Claude/ChatGPT desktop, use **Track a chat → Copy chat setup**, then **Paste chat update**. File-enabled agents can publish directly to the private inbox. [Coordination guide](AGENT_COORDINATION.md) · [Shared handoff protocol](FORGEBOARD_HANDOFF.md).
 
 Each agent can append the protocol to that project's AGENTS.md and CLAUDE.md with `node scripts/forgeboard-handoff.mjs install --project ABSOLUTE_FOLDER`; existing instructions are preserved. Agents publish one private inbox file per meaningful handoff and can read the project's current checked/blocked steps with `status --project NAME`. The app never silently reads other chats.
 
@@ -17,7 +17,7 @@ Other chats can leave separate `forgeboard-task` JSON files in `data/task-inbox/
 - This public repository contains app code only—never planner data, access tokens, Gmail credentials, or OpenAI keys.
 - Planner records live in `data/workspace.json` in the private `forgeboard-studio-vault` repository.
 - The browser GitHub token is device-specific. By default it stays only in memory for the page session; “Remember token” stores it in the browser’s IndexedDB device cache.
-- OpenAI and optional Gmail credentials belong only in the private vault repository’s GitHub Actions secrets.
+- OpenAI and Claude credentials belong only in the private vault repository’s GitHub Actions secrets. No email integration is used.
 - The OpenAI API is billed separately from ChatGPT subscriptions.
 
 ## Connect a device

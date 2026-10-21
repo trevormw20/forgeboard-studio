@@ -12,6 +12,64 @@ export type ProjectStage = 'prototype' | 'in-development' | 'polish' | 'submitte
 export type StartingPriority = 'low' | 'medium' | 'high'
 export type EffectivePriority = StartingPriority | 'urgent'
 export type TaskKind = 'checkbox' | 'scheduled'
+export type AgentProgress = 'unknown' | 'in-progress' | 'waiting-on-me' | 'waiting-on-agent' | 'paused' | 'blocked' | 'done'
+export interface AgentChat {
+  id: string
+  projectId: string
+  name: string
+  agent: 'codex' | 'claude-code' | 'claude' | 'chatgpt' | 'other'
+  status: AgentProgress
+  summary: string
+  nextAction?: string
+  source?: string
+  updatedAt: string
+  paused?: boolean
+}
+export interface AgentStatusEvent {
+  format: 'forgeboard-status'
+  version: 1
+  id: string
+  project: string
+  at: string
+  chat: { id: string; name: string; agent: AgentChat['agent']; source?: string }
+  status: AgentProgress
+  summary: string
+  nextAction?: string
+  handoff?: { toChatId: string; instruction: string; files: string[]; chainId: string; hop: number }
+}
+export interface RelayReceipt {
+  format: 'forgeboard-relay-result'
+  version: 1
+  id: string
+  handoffId: string
+  at: string
+  state: 'claimed' | 'delivered' | 'failed' | 'needs-check'
+  detail: string
+}
+export interface ProjectRegistration {
+  format: 'forgeboard-project'
+  version: 1
+  id: string
+  at: string
+  project: string
+  color?: string
+  icon?: string
+}
+export interface ProjectExperiment {
+  id: string
+  projectId: string
+  hypothesis: string
+  action: string
+  target: number
+  unit: string
+  reviewDate: string
+  decisionRule: string
+  observations: { id: string; at: string; amount: number; evidence: string }[]
+  status: 'running' | 'continue' | 'adjust' | 'stop'
+  conclusion?: string
+  createdAt: string
+  updatedAt: string
+}
 
 export interface EscalationPolicy {
   lowToMediumDays: number
@@ -25,6 +83,7 @@ export interface Project {
   color: string
   icon: string
   stage: ProjectStage
+  workState?: AgentProgress
   settings: {
     escalation: EscalationPolicy
     defaultBoard: BoardKey
@@ -62,7 +121,7 @@ export interface Subtask {
 export type WorkStatus = 'needs-review' | 'in-progress' | 'waiting' | 'blocked' | 'later'
 
 export interface HandoffContext {
-  agent: 'codex' | 'claude-code' | 'other'
+  agent: AgentChat['agent']
   source?: string
   completedWork: string[]
   review: string
@@ -202,6 +261,10 @@ export interface Workspace {
   conflicts: ConflictRecord[]
   ai: AiState
   manager?: ManagerSettings
+  agentChats?: AgentChat[]
+  agentEvents?: AgentStatusEvent[]
+  relayReceipts?: RelayReceipt[]
+  experiments?: ProjectExperiment[]
 }
 
 export interface ConnectionConfig {

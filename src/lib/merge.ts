@@ -3,7 +3,7 @@ import type { ConflictRecord, Workspace } from '../types'
 
 type Entity = { id: string; updatedAt?: string; deletedAt?: string }
 
-const unionArrayKeys = new Set(['rescheduleLog', 'subtasks'])
+const unionArrayKeys = new Set(['rescheduleLog', 'subtasks', 'observations'])
 
 function same(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right)
@@ -112,6 +112,10 @@ export function mergeWorkspaces(base: Workspace | undefined, local: Workspace, r
     conflicts: unionById(conflicts, []) as ConflictRecord[],
     ai: (local.ai.updatedAt ?? '') >= (remote.ai.updatedAt ?? '') ? local.ai : remote.ai,
     manager: !local.manager ? remote.manager : !remote.manager ? local.manager : mergeEntity('manager', base?.manager, local.manager, remote.manager, conflicts) as Workspace['manager'],
+    agentChats: mergeCollection('chat', base?.agentChats ?? [], local.agentChats ?? [], remote.agentChats ?? [], conflicts),
+    agentEvents: unionById(local.agentEvents ?? [], remote.agentEvents ?? []) as Workspace['agentEvents'],
+    relayReceipts: unionById((local.relayReceipts ?? []).map((item) => ({ ...item, updatedAt: item.at })), (remote.relayReceipts ?? []).map((item) => ({ ...item, updatedAt: item.at }))) as Workspace['relayReceipts'],
+    experiments: mergeCollection('experiment', base?.experiments ?? [], local.experiments ?? [], remote.experiments ?? [], conflicts),
   }
   return merged
 }

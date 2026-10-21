@@ -2,6 +2,10 @@
 
 Forgeboard is the owner's single project manager. Preserve human review and unfinished work across long conversations and across agents.
 
+For ordinary Claude or ChatGPT desktop conversations without project-folder/GitHub access, use **Track a chat → Copy chat setup** in Forgeboard, then paste the returned JSON update into **Paste chat update** (or select its JSON file). A JSON array can include both status and review-task objects. Never claim automatic publishing or access to another desktop conversation. See [desktop coordination](AGENT_COORDINATION.md#current-setup-claude-and-chatgpt-desktop-conversations).
+
+For chat progress and paired agent work, also read [AGENT_COORDINATION.md](AGENT_COORDINATION.md). Publish a status event when starting work, waiting on a human/peer, blocked, paused, or finishing your part. Request a peer handoff only for an explicitly configured route; retain approval gates and report what is actually finished.
+
 ## One-time instruction
 
 When the user asks you to use this protocol, keep a short reference to it in this project's `AGENTS.md` (Codex) and/or `CLAUDE.md` (Claude Code), preserving existing instructions. Don't alter global instructions or other projects. If asked to install both, the helper supports:

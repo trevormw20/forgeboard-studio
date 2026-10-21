@@ -20,6 +20,25 @@ afterEach(cleanup)
 beforeEach(() => { memory.mutations.clear(); vi.mocked(fetchWorkspace).mockReset(); vi.mocked(putWorkspace).mockReset() })
 
 describe('review changes during sync', () => {
+  it('imports a desktop status and checklist together, retains checks on repeat, and rejects malformed batches atomically', async () => {
+    const { result } = renderHook(() => useForgeboard())
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    const at = new Date().toISOString()
+    const status = { format: 'forgeboard-status', version: 1, id: 'desktop-report-1', project: 'Snail Mail', at, chat: { id: 'snail-claude', name: 'Story planning', agent: 'claude' }, status: 'waiting-on-me', summary: 'Draft ready for review.' }
+    const task = { format: 'forgeboard-task', version: 1, id: 'desktop-check-1', project: 'Snail Mail', date: at.slice(0, 10), summary: 'Review draft', subtasks: [{ id: 'one', title: 'Read the opening.' }, { id: 'two', title: 'Check the ending.' }] }
+    act(() => { result.current.actions.importChatUpdate(JSON.stringify([status, task])) })
+    const parent = result.current.workspace.tasks.find((item) => item.id === 'submission:desktop-check-1')!
+    expect(result.current.workspace.agentChats?.[0].status).toBe('waiting-on-me')
+    act(() => { result.current.actions.toggleSubtask(parent.id, parent.subtasks![0].id) })
+    act(() => { result.current.actions.importChatUpdate(JSON.stringify([status, task])) })
+    expect(result.current.workspace.tasks.filter((item) => item.id === parent.id)).toHaveLength(1)
+    expect(result.current.workspace.tasks.find((item) => item.id === parent.id)?.subtasks?.[0].completedAt).toBeTruthy()
+    const before = result.current.workspace
+    expect(() => result.current.actions.importChatUpdate(JSON.stringify([{ ...status, id: 'not-imported' }, { format: 'invalid' }]))).toThrow()
+    expect(result.current.workspace).toBe(before)
+    act(() => { result.current.actions.saveChatReport({ id: 'snail-claude', projectId: parent.projectId, name: 'Story planning', agent: 'claude', status: 'blocked', summary: 'Need a revised ending.' }) })
+    expect(result.current.workspace.agentChats?.[0].status).toBe('blocked')
+  })
   it('keeps a task created after the first sync began but before the remote read finished', async () => {
     const remote = createSeedWorkspace()
     let resolveRead!: (value: { workspace: Workspace; sha: string }) => void

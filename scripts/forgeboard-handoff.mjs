@@ -3,10 +3,15 @@ import { readFile, writeFile, stat } from 'node:fs/promises'
 import { resolve, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { spawnSync } from 'node:child_process'
+import { parseCoordination } from '../shared/coordination.mjs'
 
 const DEFAULT_REPO = 'trevormw20/forgeboard-studio-vault'
 const GUIDE = 'https://github.com/trevormw20/forgeboard-studio/blob/main/FORGEBOARD_HANDOFF.md'
 export function validate(value, bytes) {
+  if (['forgeboard-status', 'forgeboard-relay-result', 'forgeboard-project'].includes(value?.format)) {
+    if (bytes > 200000) throw new Error('File exceeds 200 KB.')
+    return parseCoordination(value)
+  }
   if (bytes > 200000 || value?.format !== 'forgeboard-task' || value.version !== 1) throw new Error('Use a forgeboard-task version 1 file under 200 KB.')
   if (!/^[a-zA-Z0-9._-]{1,120}$/.test(value.id ?? '')) throw new Error('Invalid stable submission id.')
   for (const key of ['project', 'summary']) if (typeof value[key] !== 'string' || !value[key].trim() || value[key].length > 500) throw new Error(`Invalid ${key}.`)
@@ -24,17 +29,17 @@ export function validate(value, bytes) {
   if (value.notes !== undefined && (typeof value.notes !== 'string' || value.notes.length > 20000)) throw new Error('Invalid notes.')
   if (value.handoff) {
     const h = value.handoff
-    if (!['codex', 'claude-code', 'other'].includes(h.agent) || typeof h.review !== 'string' || !h.review.trim() || h.review.length > 4000 || !Array.isArray(h.completedWork) || h.completedWork.length > 50 || h.completedWork.some((s) => typeof s !== 'string' || !s.trim() || s.length > 1000)) throw new Error('Invalid handoff context.')
+    if (!['codex', 'claude-code', 'claude', 'chatgpt', 'other'].includes(h.agent) || typeof h.review !== 'string' || !h.review.trim() || h.review.length > 4000 || !Array.isArray(h.completedWork) || h.completedWork.length > 50 || h.completedWork.some((s) => typeof s !== 'string' || !s.trim() || s.length > 1000)) throw new Error('Invalid handoff context.')
     for (const key of ['source', 'resume', 'relatedSubmissionId']) if (h[key] !== undefined && (typeof h[key] !== 'string' || h[key].length > 4000)) throw new Error(`Invalid handoff ${key}.`)
   }
   return value
 }
-function gh(args, input) {
+export function gh(args, input) {
   const result = spawnSync('gh', args, { input, encoding: 'utf8', windowsHide: true })
   if (result.error) throw new Error('GitHub CLI is not available. Install gh and authenticate on this machine.')
   return result
 }
-function must(result) { if (result.status !== 0) throw new Error('GitHub operation failed. Check gh auth status and access to the private vault. No workspace data was overwritten.'); return result.stdout }
+export function must(result) { if (result.status !== 0) throw new Error('GitHub operation failed. Check gh auth status and access to the private vault. No workspace data was overwritten.'); return result.stdout }
 export async function publish(file, repo = DEFAULT_REPO) {
   const text = await readFile(file, 'utf8'), value = validate(JSON.parse(text), Buffer.byteLength(text))
   if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) throw new Error('Invalid repository name.')

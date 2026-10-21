@@ -68,5 +68,52 @@
 .helper-copy { color: var(--muted) !important; font-size: 11px !important; line-height: 1.6; }
 .feedback-preview { padding: 12px; white-space: pre-wrap; overflow-wrap: anywhere; background: #0b1015; border: 1px solid var(--line); border-radius: 8px; color: #bac9d6; font-size: 12px; line-height: 1.7; }
 .full-task-list > summary { margin-bottom: 10px; }
+.project-progress, .experiment-panel { min-width: 0; padding: 20px; border: 1px solid var(--line); border-radius: 14px; background: #10161c; }
+.project-progress > .helper-copy { display: flex; align-items: flex-start; gap: 6px; margin-bottom: 0; }
+.project-progress > .helper-copy svg { flex-shrink: 0; }
+.progress-filter { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin: 12px 0; }
+.progress-filter label { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.progress-filter select, .status-control select { min-height: 38px; color: #d0dce6; background: #0d141b; border: 1px solid #35414d; border-radius: 7px; padding: 6px; max-width: 100%; }
+.progress-filter > span { color: var(--muted); font-size: 11px; }
+.progress-projects { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.progress-project { min-width: 0; padding: 15px; border: 1px solid #303c47; background: #141c23; border-radius: 11px; }
+.progress-project header { display: flex; gap: 9px; align-items: flex-start; flex-wrap: wrap; }
+.progress-project h3 { font-size: 16px; margin: 0 0 6px; }
+.progress-icon { font-size: 22px; }
+.status-control { margin-left: auto; display: grid; gap: 5px; color: var(--muted); font-size: 10px; }
+.status-control select { font-size: 11px; width: 135px; }
+.work-status { display: inline-block; padding: 4px 7px; border-radius: 6px; color: #aab7c4; background: #25303a; font-size: 10px; font-weight: 600; }
+.state-in-progress { background: #223b5a; color: #b8d5ff; }
+.state-waiting-on-me { background: #49351e; color: #ffd09a; }
+.state-waiting-on-agent { background: #352c50; color: #d9c2ff; }
+.state-paused { background: #30353c; color: #b3bdc8; }
+.state-blocked { background: #492a2b; color: #ffb9b2; }
+.state-done { background: #263e27; color: #c7eeb8; }
+.checklist-measure { color: var(--muted); font-size: 11px; }
+.progress-project progress, .experiment-card progress { display: block; height: 7px; width: 100%; accent-color: #a6d468; }
+.project-chat { padding: 13px 0; border-top: 1px solid #2b3741; margin-top: 10px; }
+.chat-status-line { display: flex; justify-content: space-between; gap: 9px; flex-wrap: wrap; align-items: center; }
+.chat-status-line strong { font-size: 13px; overflow-wrap: anywhere; }
+.chat-report-form { padding: 16px 0; }
+.chat-report-form small { color: var(--muted); line-height: 1.6; }
+.chat-controls { display: flex; gap: 8px 14px; flex-wrap: wrap; margin-top: 9px; }
+.chat-controls button { min-height: 42px; font-size: 11px; }
+.manual-chat-copy { width: 100%; padding: 12px; background: #0b1015; color: #bac9d6; border: 1px solid var(--line); border-radius: 8px; margin-top: 12px; }
+.relay-help { margin-top: 10px; }
+.relay-help p { color: var(--muted); font-size: 12px; line-height: 1.7; }
+.relay-help a { color: #b9caff; font-size: 12px; }
+.project-chat small { display: block; margin: 7px 0; color: #8192a3; font-size: 10px; }
+.project-chat p, .experiment-card p { color: #a5b5c4; font-size: 12px; line-height: 1.65; overflow-wrap: anywhere; }
+.project-chat .chat-source { color: #788b9d; font-size: 10px; }
+.project-chat > .text-button { min-height: 36px; }
+.relay-state { display: flex; align-items: flex-start; gap: 7px; color: #c1b1e4; font-size: 11px; line-height: 1.6; margin: 8px 0; }
+.experiment-panel { border-color: #45402a; background: linear-gradient(125deg, #1c2016, #10171c); }
+.experiment-panel > p { color: #abb7a1; font-size: 13px; line-height: 1.7; }
+.experiment-form { padding: 15px 0; }
+.experiment-form > form { display: grid; gap: 10px; }
+.experiment-card { padding: 17px; border: 1px solid #3c4737; border-radius: 10px; margin-top: 14px; background: #141c17; }
+.experiment-card > .text-button { min-height: 40px; }
+.experiment-card summary { font-size: 12px; }
+@media(max-width:680px) { .progress-projects { grid-template-columns: 1fr; } .project-progress, .experiment-panel { padding: 15px; } .progress-filter { flex-direction: column; align-items: flex-start; } .status-control { width: 100%; margin-left: 0; grid-template-columns: auto 1fr; align-items: center; } .status-control select { width: 100%; } }
 @media(max-width:1080px) { .manager-intro { flex-direction: column; align-items: flex-start; } }
 @media(max-width:680px) { .next-cards { grid-template-columns: 1fr; } .manager-home { gap: 20px; } .manager-day { width: 100%; } .manager-day label { flex: 1; min-width: 120px; } .manager-day select { width: 100%; } .manager-tabs button { flex: 1; justify-content: center; } .manager-brief, .momentum-card { padding: 16px; } .review-body { padding: 15px; } .review-actions button { flex: 1; } }
