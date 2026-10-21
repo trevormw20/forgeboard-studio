@@ -21,6 +21,8 @@ describe('project and agent progress', () => {
     const second = importSubmissions(first.workspace, [registration], now)
     expect(second.updates).toBe(0)
     expect(second.workspace.projects.find((item) => item.id === project.id)?.color).toBe('#112233')
+    const reported = importSubmissions(second.workspace, [file({ ...status, project: 'Snail Mail', status: 'waiting-on-me' })], now).workspace
+    expect(projectProgress(reported, reported.projects.find((item) => item.id === project.id)!)).toBe('waiting-on-me')
   })
   it('imports status without creating a master-list task and ignores duplicate or older updates', () => {
     const base = createSeedWorkspace()

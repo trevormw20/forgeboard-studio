@@ -55,7 +55,7 @@ export function applyCoordination(workspace: Workspace, event: AgentStatusEvent 
   return true
 }
 export function projectProgress(workspace: Workspace, project: Project): AgentProgress {
-  if (project.workState) return project.workState
+  if (project.workState && project.workState !== 'unknown') return project.workState
   const chats = (workspace.agentChats ?? []).filter((chat) => chat.projectId === project.id)
   if (chats.some((chat) => !chat.paused && chat.status === 'waiting-on-me')) return 'waiting-on-me'
   if (chats.some((chat) => !chat.paused && chat.status === 'blocked')) return 'blocked'
