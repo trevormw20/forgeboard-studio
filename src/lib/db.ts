@@ -66,6 +66,12 @@ export async function countMutations(): Promise<number> {
   return (await dbPromise).count('outbox')
 }
 
-export async function clearMutations(): Promise<void> {
-  await (await dbPromise).clear('outbox')
+export async function mutationIds(): Promise<string[]> {
+  return (await dbPromise).getAllKeys('outbox')
+}
+
+export async function clearMutations(ids: string[]): Promise<void> {
+  const transaction = (await dbPromise).transaction('outbox', 'readwrite')
+  for (const id of ids) void transaction.store.delete(id)
+  await transaction.done
 }

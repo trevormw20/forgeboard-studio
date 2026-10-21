@@ -7,6 +7,7 @@ import {
   loadBaseWorkspace,
   loadCachedWorkspace,
   loadConnection,
+  mutationIds,
   saveBaseWorkspace,
   saveCachedWorkspace,
   saveConnection,
@@ -68,6 +69,7 @@ export function useForgeboard() {
   const workspaceRef = useRef(workspace)
   const connectionRef = useRef(connection)
   const syncingRef = useRef(false)
+  const revisionRef = useRef(0)
 
   useEffect(() => { workspaceRef.current = workspace }, [workspace])
   useEffect(() => { connectionRef.current = connection }, [connection])
@@ -94,6 +96,7 @@ export function useForgeboard() {
     const now = isoNow()
     const next = structuredClone(workspaceRef.current)
     change(next, now)
+    revisionRef.current += 1
     next.updatedAt = now
     workspaceRef.current = next
     setWorkspace(next)
@@ -127,13 +130,14 @@ export function useForgeboard() {
       let attempt = 0
       while (attempt < 3) {
         attempt += 1
-        const [{ workspace: remote, sha }, base, pending] = await Promise.all([
+        const [{ workspace: remote, sha }, base, acknowledgedIds] = await Promise.all([
           fetchWorkspace(config),
           loadBaseWorkspace(),
-          countMutations(),
+          mutationIds(),
         ])
         const local = workspaceRef.current
-        const importResult = importSubmissions(!base && pending === 0 ? remote : mergeWorkspaces(base, local, remote), inboxFiles, isoNow())
+        const pending = acknowledgedIds.length
+        const importResult = importSubmissions(!base && pending === 0 && revisionRef.current === 0 ? remote : mergeWorkspaces(base, local, remote), inboxFiles, isoNow())
         const merged = importResult.workspace
         let finalSha = sha
         if (pending > 0 || JSON.stringify(merged) !== JSON.stringify(remote)) {
@@ -149,11 +153,11 @@ export function useForgeboard() {
         workspaceRef.current = displayed
         setWorkspace(displayed)
         await Promise.all([saveCachedWorkspace(displayed), saveBaseWorkspace(merged), saveSha(finalSha)])
-        if (!changedDuringWrite) await clearMutations()
+        await clearMutations(acknowledgedIds)
         const remaining = await countMutations()
         setInboxStatus(inboxError ? `Inbox: ${inboxError}` : importResult.errors.length ? `Inbox needs attention: ${importResult.errors.join(' · ')}` : importResult.added ? `Imported ${importResult.added} submission${importResult.added === 1 ? '' : 's'} with checklists.` : 'Inbox checked. No new submissions.')
         const lastSyncedAt = isoNow()
-        setSyncMeta({ dirty: changedDuringWrite, syncing: false, online: true, pendingWrites: remaining, lastSyncedAt })
+        setSyncMeta({ dirty: changedDuringWrite || remaining > 0, syncing: false, online: true, pendingWrites: remaining, lastSyncedAt })
         return true
       }
       throw new Error('The workspace changed repeatedly. Try Sync now again.')
