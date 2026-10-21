@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { normalizeDrop, publishRecords, stable } from './desktop-inbox.mjs'
+import { normalizeDrop, publishRecords, stable, repositoryEndpoint } from './desktop-inbox.mjs'
 import { scanOnce } from './forgeboard-desktop.mjs'
 
 const at = '2026-10-21T17:30:00Z'
@@ -11,6 +11,8 @@ const task = { format: 'forgeboard-task', version: 1, id: 'folder-review-one', p
 const status = { format: 'forgeboard-status', version: 1, id: 'folder-status-one', project: 'Snail Mail', at, chat: { id: 'snail-planner', name: 'Story planner', agent: 'claude' }, status: 'waiting-on-me', summary: 'Opening letter ready for review.' }
 
 test('normalizes one project per file and keeps both status and original checklist', () => {
+  assert.equal(repositoryEndpoint('owner/vault'), 'repos/owner/vault')
+  assert.equal(repositoryEndpoint('owner/vault', 'git/ref/heads/main'), 'repos/owner/vault/git/ref/heads/main')
   const records = normalizeDrop(JSON.stringify([task, status]), 'snail.json', at)
   assert.equal(records.length, 2)
   assert.equal(records[0].desktopDelivery.id, records[1].desktopDelivery.id)

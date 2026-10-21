@@ -69,6 +69,7 @@ export async function watch(folder, repository) {
   const state = await readJson(statePath, { entries: {} })
   if (state.repository && state.repository !== repository) throw new Error('This inbox belongs to another repository. Use a different inbox folder.')
   state.repository = repository
+  for (const entry of Object.values(state.entries ?? {})) if (entry.phase === 'error') delete entry.retryAt
   const lockPath = join(control, 'watcher.lock'), session = randomUUID()
   let handle
   try { handle = await open(lockPath, 'wx', 0o600) }

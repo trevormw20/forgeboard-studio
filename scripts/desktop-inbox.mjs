@@ -5,6 +5,7 @@ import { parseSubmission, parseCoordination } from '../runtime/inbox-core.mjs'
 
 export const DEFAULT_REPO = 'trevormw20/forgeboard-studio-vault'
 export const MAX_BYTES = 200000
+export const repositoryEndpoint = (repository, path = '') => `repos/${repository}${path ? `/${path}` : ''}`
 export const stable = (value) => JSON.stringify(value, (_key, item) => item && typeof item === 'object' && !Array.isArray(item) ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a.localeCompare(b))) : item)
 export const digest = (value) => createHash('sha256').update(value).digest('hex')
 const noMetadata = (value) => {
@@ -70,7 +71,7 @@ export function normalizeDrop(text, fileName, at = new Date().toISOString()) {
 export function ghRequest(repository) {
   if (!/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/.test(repository)) throw new Error('Invalid private repository name.')
   return async (method, path, body) => {
-    const args = ['api', `repos/${repository}/${path}`, '--method', method]
+    const args = ['api', repositoryEndpoint(repository, path), '--method', method]
     if (body !== undefined) args.push('--input', '-')
     const result = spawnSync('gh', args, { input: body === undefined ? undefined : JSON.stringify(body), encoding: 'utf8', windowsHide: true, timeout: 25000, maxBuffer: 8 * 1024 * 1024 })
     if (result.error || result.status !== 0) {
