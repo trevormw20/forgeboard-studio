@@ -1,11 +1,17 @@
 import { useState } from 'react'
 import type { ConflictRecord, PersonalNote } from '../types'
 import type { useForgeboard } from '../hooks/useForgeboard'
+import { orderedChecklist, recoverChecklistSnapshot } from '../lib/noteChecklist'
 import './note-conflicts.css'
 
 function noteSnapshot(value: unknown): Partial<PersonalNote> | undefined {
   if (!value || typeof value !== 'object' || !('body' in value) || typeof value.body !== 'string') return undefined
   return value as Partial<PersonalNote>
+}
+
+function savedText(note: Partial<PersonalNote>): string {
+  const checklist = orderedChecklist(note.checklist ?? []).map(({ item, depth }) => `${'  '.repeat(Math.min(depth, 20))}[${item.completedAt ? 'x' : ' '}] ${item.text}`).join('\n')
+  return [note.body, checklist].filter(Boolean).join('\n\n') || '(Empty note)'
 }
 
 export function NoteConflictCopies({ forge, projectId }: { forge: ReturnType<typeof useForgeboard>; projectId?: string }) {
@@ -28,6 +34,7 @@ export function NoteConflictCopies({ forge, projectId }: { forge: ReturnType<typ
         projectId: project?.id,
         title: `${note.title || 'Untitled note'} (saved copy)`.slice(0, 300),
         body: note.body ?? '',
+        ...(note.checklist ? { checklist: recoverChecklistSnapshot(note.checklist) } : {}),
         color: /^#[0-9a-f]{6}$/i.test(note.color ?? '') ? note.color : undefined,
         labelIds: (note.labelIds ?? []).filter((id) => forge.workspace.noteLabels?.some((label) => label.id === id && !label.deletedAt && (!label.projectId || label.projectId === project?.id))),
       })
@@ -51,7 +58,7 @@ export function NoteConflictCopies({ forge, projectId }: { forge: ReturnType<typ
         const project = activeProject(note)
         const archived = Boolean(note.projectId && !project)
         const saved = restored.includes(`${conflict.id}:${side}`)
-        return <div key={side}><strong>{side === 'local' ? 'This device’s version' : 'Other device’s version'}</strong><p>{project?.name ?? 'General'}{archived ? ` · Original project is unavailable (${note.projectId}). Recovery will create a copy in General.` : ''}</p><pre>{note.body || '(Empty note)'}</pre><button type="button" className="secondary-button" onClick={() => restore(conflict, side)} disabled={saved}>{saved ? 'Copy saved' : archived ? `Save ${side === 'local' ? 'this' : 'other'} version to General` : `Save ${side === 'local' ? 'this' : 'other'} version as a note`}</button></div>
+        return <div key={side}><strong>{side === 'local' ? 'This device’s version' : 'Other device’s version'}</strong><p>{project?.name ?? 'General'}{archived ? ` · Original project is unavailable (${note.projectId}). Recovery will create a copy in General.` : ''}</p><pre>{savedText(note)}</pre><button type="button" className="secondary-button" onClick={() => restore(conflict, side)} disabled={saved}>{saved ? 'Copy saved' : archived ? `Save ${side === 'local' ? 'this' : 'other'} version to General` : `Save ${side === 'local' ? 'this' : 'other'} version as a note`}</button></div>
       })}</div>
     </section>})}
   </details>

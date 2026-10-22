@@ -54,6 +54,10 @@ function mergeEntity(
       merged[key] = remoteValue
     } else if (same(remoteValue, baseValue)) {
       merged[key] = localValue
+    } else if (entityType === 'personal-note' && key === 'checklist' && Array.isArray(localValue) && Array.isArray(remoteValue)) {
+      // Checkboxes, text and nesting are independent fields on stable item IDs.
+      // Preserve full note snapshots below so either original list can be recovered.
+      merged[key] = mergeCollection('note-checklist-item', Array.isArray(baseValue) ? baseValue : [], localValue, remoteValue, [])
     } else if (unionArrayKeys.has(key) && Array.isArray(localValue) && Array.isArray(remoteValue)) {
       merged[key] = unionById(localValue, remoteValue)
     }

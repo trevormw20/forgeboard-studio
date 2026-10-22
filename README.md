@@ -16,6 +16,8 @@ Choose **Personal notes** in the sidebar (or **Notes** on a phone). Each active 
 
 Notes are plain text cards with custom colors, custom colored labels, pinning, and search within the selected project. Open a note to edit it or add sub-notes; each sub-note can contain more sub-notes. Breadcrumbs show where you are. Edits save automatically through the same offline queue and private GitHub workspace as tasks. A visible status distinguishes device-only, queued, and GitHub-synced changes. Connect GitHub before expecting a note on another device.
 
+Each note can also contain an outline-style checklist alongside its text. Add a checklist line, slide its dotted handle right to nest it under the previous item, or left to move it out one level. Sub-checkboxes can contain sub-sub-checkboxes and deeper levels. Enter creates a sibling; Tab/Shift+Tab indents/outdents. The row’s Options button offers the same actions, plus adding a sub-item and reordering. Every checkbox is independent—checking a parent never checks its children for you. Cards show a small interactive checklist preview; search includes checklist wording. Deleted checklist groups have Undo and persistent Restore. Checklist edits merge by stable item and field, not by replacing the whole list.
+
 Deleting a note moves its existing sub-note group into Recently deleted; Undo or Restore returns it without removing other saved work. Conflicting edits retain both snapshots in **Saved conflict copies**, where either version can be recovered as a separate note. Personal Notes and labels are not included in AI summaries or automatic task routing. They are separate from Quick capture, which creates tasks.
 
 ## Automatic chat submissions

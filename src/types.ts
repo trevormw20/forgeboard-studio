@@ -277,6 +277,17 @@ export interface InboxAutomation {
   errorCount: number
 }
 
+export interface NoteChecklistItem {
+  id: string
+  text: string
+  parentId?: string
+  order: number
+  createdAt: string
+  updatedAt: string
+  completedAt?: string
+  deletedAt?: string
+}
+
 export interface PersonalNote {
   id: string
   projectId?: string
@@ -286,6 +297,7 @@ export interface PersonalNote {
   color?: string
   labelIds?: string[]
   pinned?: boolean
+  checklist?: NoteChecklistItem[]
   createdAt: string
   updatedAt: string
   deletedAt?: string

@@ -43,6 +43,23 @@ function createNote(title: string, body?: string) {
 }
 
 describe('Personal notes', () => {
+  it('finds nested checklist wording and checks an item straight from its note card', async () => {
+    cached = seed()
+    const at = '2026-10-21T18:00:00Z'
+    cached.personalNotes = [{ id: 'list-note', projectId: 'snail', title: 'Reader checks', body: '', createdAt: at, updatedAt: at, checklist: [
+      { id: 'parent-item', text: 'Story', order: 0, createdAt: at, updatedAt: at },
+      { id: 'child-item', text: 'Try the opening', parentId: 'parent-item', order: 0, createdAt: at, updatedAt: at },
+    ] }]
+    render(<Harness />)
+    await screen.findByRole('button', { name: 'Open note: Reader checks' })
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search Snail Mail' }), { target: { value: 'opening' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Check Try the opening' }))
+    const saved = JSON.parse(screen.getByLabelText('Saved notes').textContent ?? '[]')[0]
+    expect(saved.checklist.find((item: { id: string }) => item.id === 'child-item').completedAt).toBeTruthy()
+    expect(saved.checklist.find((item: { id: string }) => item.id === 'parent-item').completedAt).toBeUndefined()
+    expect(screen.queryByRole('region', { name: 'Note editor' })).toBeNull()
+  })
+
   it('keeps project notebooks separate, autosaves on switching, and adds sections from real projects', async () => {
     await start()
     createNote('Letter ideas', 'Remember the physical reader experience.')

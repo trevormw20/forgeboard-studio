@@ -22,6 +22,8 @@ import { DEFAULT_ESCALATION } from '../lib/priority'
 import { routeNote } from '../lib/routing'
 import { createPersonalNote, editPersonalNote, removePersonalNote, restorePersonalNoteTree, upsertNoteLabel, removeNoteLabel } from '../lib/personalNotes'
 import type { PersonalNoteInput, PersonalNoteUpdate, NoteLabelInput } from '../lib/personalNotes'
+import { addChecklistItem, editChecklistItem, toggleChecklistItem, moveChecklistItem, removeChecklistItem, restoreChecklistItem } from '../lib/noteChecklist'
+import type { ChecklistDirection, ChecklistItemInput } from '../lib/noteChecklist'
 import { createProject, createSeedWorkspace, createTask } from '../seed'
 import type {
   BoardKey,
@@ -526,6 +528,32 @@ export function useForgeboard() {
     commit('note-label.delete', id, (draft, now) => { removeNoteLabel(draft, id, now) })
   }, [commit])
 
+  const addNoteChecklistItem = useCallback((noteId: string, input: ChecklistItemInput): string => {
+    const id = createId('note-check')
+    commit('personal-note.checklist.create', noteId, (draft, now) => { addChecklistItem(draft, noteId, input, id, now) })
+    return id
+  }, [commit])
+
+  const updateNoteChecklistItem = useCallback((noteId: string, itemId: string, input: { text: string }): void => {
+    commit('personal-note.checklist.update', noteId, (draft, now) => { editChecklistItem(draft, noteId, itemId, input, now) })
+  }, [commit])
+
+  const toggleNoteChecklistItem = useCallback((noteId: string, itemId: string): void => {
+    commit('personal-note.checklist.toggle', noteId, (draft, now) => { toggleChecklistItem(draft, noteId, itemId, now) })
+  }, [commit])
+
+  const moveNoteChecklistItem = useCallback((noteId: string, itemId: string, direction: ChecklistDirection): void => {
+    commit('personal-note.checklist.move', noteId, (draft, now) => { moveChecklistItem(draft, noteId, itemId, direction, now) })
+  }, [commit])
+
+  const deleteNoteChecklistItem = useCallback((noteId: string, itemId: string): void => {
+    commit('personal-note.checklist.delete', noteId, (draft, now) => { removeChecklistItem(draft, noteId, itemId, now) })
+  }, [commit])
+
+  const restoreNoteChecklistItem = useCallback((noteId: string, itemId: string): void => {
+    commit('personal-note.checklist.restore', noteId, (draft, now) => { restoreChecklistItem(draft, noteId, itemId, now) })
+  }, [commit])
+
   return {
     workspace,
     connection,
@@ -566,6 +594,12 @@ export function useForgeboard() {
       restorePersonalNote,
       saveNoteLabel,
       deleteNoteLabel,
+      addNoteChecklistItem,
+      updateNoteChecklistItem,
+      toggleNoteChecklistItem,
+      moveNoteChecklistItem,
+      deleteNoteChecklistItem,
+      restoreNoteChecklistItem,
     },
   }
 }

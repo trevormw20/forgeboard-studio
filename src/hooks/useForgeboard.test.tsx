@@ -20,6 +20,37 @@ afterEach(cleanup)
 beforeEach(() => { memory.mutations.clear(); vi.mocked(fetchWorkspace).mockReset(); vi.mocked(putWorkspace).mockReset() })
 
 describe('review changes during sync', () => {
+  it('queues nested checklist changes, scopes actions to their note, and uploads complete note content', async () => {
+    const remote = createSeedWorkspace()
+    vi.mocked(fetchWorkspace).mockResolvedValue({ workspace: remote, sha: 'sha' })
+    vi.mocked(putWorkspace).mockResolvedValue('checklist-sha')
+    const { result } = renderHook(() => useForgeboard())
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    let note = '', parent = '', child = '', grandchild = ''
+    act(() => {
+      note = result.current.actions.addPersonalNote({ title: 'Meal plan', body: 'Still a text note' })
+      parent = result.current.actions.addNoteChecklistItem(note, { text: 'Tuesday' })
+      child = result.current.actions.addNoteChecklistItem(note, { text: 'Orange chicken', parentId: parent })
+      grandchild = result.current.actions.addNoteChecklistItem(note, { text: 'Make sauce', parentId: child })
+      result.current.actions.updateNoteChecklistItem(note, grandchild, { text: 'Taste sauce' })
+      result.current.actions.toggleNoteChecklistItem(note, parent)
+      result.current.actions.moveNoteChecklistItem(note, grandchild, 'outdent')
+    })
+    const items = result.current.workspace.personalNotes![0].checklist!
+    expect(items.find((item) => item.id === grandchild)).toMatchObject({ text: 'Taste sauce', parentId: parent })
+    expect(items.find((item) => item.id === child)?.completedAt).toBeUndefined()
+    const before = result.current.workspace
+    expect(() => result.current.actions.toggleNoteChecklistItem('wrong-note', parent)).toThrow(/unavailable/)
+    expect(result.current.workspace).toBe(before)
+    await waitFor(() => expect(memory.mutations.size).toBe(7))
+    await act(async () => { await result.current.actions.updateConnection(config) })
+    expect(vi.mocked(putWorkspace).mock.calls[0][1].personalNotes?.[0]).toMatchObject({ body: 'Still a text note', checklist: expect.arrayContaining([expect.objectContaining({ id: grandchild, text: 'Taste sauce' })]) })
+    act(() => { result.current.actions.deleteNoteChecklistItem(note, parent) })
+    expect(result.current.workspace.personalNotes![0].checklist!.every((item) => item.deletedAt)).toBe(true)
+    act(() => { result.current.actions.restoreNoteChecklistItem(note, parent) })
+    expect(result.current.workspace.personalNotes![0].checklist!.every((item) => !item.deletedAt)).toBe(true)
+    await waitFor(() => expect(result.current.syncMeta.dirty).toBe(true))
+  })
   it('queues nested personal notes and labels and syncs them alongside another device’s notes', async () => {
     const remote = createSeedWorkspace()
     remote.personalNotes = [{ id: 'phone-note', projectId: remote.projects[1].id, title: 'Phone note', body: 'Keep separate', createdAt: remote.updatedAt, updatedAt: remote.updatedAt }]

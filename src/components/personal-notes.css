@@ -92,6 +92,15 @@
 .pn-card-open h3 { margin: 0 0 9px; font-size: 14px; line-height: 1.55; font-weight: 700; overflow-wrap: anywhere; }
 .pn-card-open p { margin: 0 0 13px; color: #b6c2d5; font-size: 12px; line-height: 1.75; display: -webkit-box; -webkit-line-clamp: 7; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; }
 .pn-card-open .pn-card-placeholder { color: #8595ad; font-size: 11px; }
+.pn-checklist-card .pn-card-open { min-height: 0; padding-bottom: 8px; }
+.pn-checklist-preview { padding: 0 17px 12px; }
+.pn-checklist-preview label { display: flex; align-items: center; gap: 9px; min-height: 36px; color: #cbd4e4; cursor: pointer; font-size: 12px; line-height: 1.5; }
+.pn-checklist-preview input { flex-shrink: 0; width: 16px; height: 16px; margin: 0; accent-color: var(--note-color); }
+.pn-checklist-preview label span { min-width: 0; overflow-wrap: anywhere; }
+.pn-checklist-preview label.is-checked span { text-decoration: line-through; color: #8c9aaf; }
+.pn-checklist-preview small { display: block; margin-top: 8px; font-size: 10px; color: #98a9c0; }
+.pn-body-label > textarea.pn-body-with-checklist { min-height: 68px; }
+@media (max-width: 600px) { .pn-checklist-preview label { min-height: 44px; } }
 .pn-child-count, .pn-card-location { display: flex; align-items: center; gap: 5px; color: #c1b2df; font-size: 10px; margin: 0 0 10px; }
 .pn-card-location { color: #899ab5; overflow-wrap: anywhere; }
 .pn-card-labels { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 7px; }

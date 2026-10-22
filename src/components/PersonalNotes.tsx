@@ -4,6 +4,8 @@ import type { useForgeboard } from '../hooks/useForgeboard'
 import type { PersonalNote } from '../types'
 import { deletedPersonalNoteRoots } from '../lib/personalNotes'
 import { NoteConflictCopies } from './NoteConflictCopies'
+import { NoteChecklist } from './NoteChecklist'
+import { NoteChecklistPreview } from './NoteChecklistPreview'
 import './personal-notes.css'
 
 type Forge = ReturnType<typeof useForgeboard>
@@ -82,7 +84,7 @@ export function PersonalNotes({ forge, onAddProject, initialProjectId, onProject
   }
   const searching = Boolean(query.trim() || labelFilter)
   const shown = scopedNotes.filter((note) => {
-    const textMatches = !query.trim() || `${note.title}\n${note.body}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())
+    const textMatches = !query.trim() || `${note.title}\n${note.body}\n${(note.checklist ?? []).filter((item) => !item.deletedAt).map((item) => item.text).join('\n')}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())
     const labelMatches = !labelFilter || note.labelIds?.includes(labelFilter)
     const locationMatches = searching || (selected ? parentOf(note, notes)?.id === selected.id : !parentOf(note, notes))
     return textMatches && labelMatches && locationMatches
@@ -147,15 +149,17 @@ export function PersonalNotes({ forge, onAddProject, initialProjectId, onProject
   function renderCard(note: PersonalNote) {
     const children = scopedNotes.filter((child) => parentOf(child, notes)?.id === note.id)
     const parent = parentOf(note, notes)
-    return <article className="pn-card" key={note.id} style={noteStyle(note.color)}>
+    const hasChecklist = note.checklist?.some((item) => !item.deletedAt)
+    return <article className={`pn-card ${hasChecklist ? 'pn-checklist-card' : ''}`} key={note.id} style={noteStyle(note.color)}>
       <button className="pn-card-open" onClick={() => openNote(note.id)} aria-label={`Open note: ${noteTitle(note)}`}>
         <h3>{noteTitle(note)}</h3>
         {note.body && <p>{note.body}</p>}
-        {!note.body && !children.length && <p className="pn-card-placeholder">Add a thought, a link, or a little more detail.</p>}
+        {!note.body && !children.length && !hasChecklist && <p className="pn-card-placeholder">Add a thought, a link, or a little more detail.</p>}
         {searching && parent && <span className="pn-card-location"><Layers3 size={12} />Inside {noteTitle(parent)}</span>}
         {children.length > 0 && <span className="pn-child-count"><Layers3 size={13} />{children.length} sub-note{children.length === 1 ? '' : 's'}</span>}
         {(note.labelIds ?? []).some((id) => labels.some((label) => label.id === id)) && <span className="pn-card-labels">{labels.filter((label) => note.labelIds?.includes(label.id)).map((label) => <span className="pn-label" key={label.id} style={noteStyle(label.color)}><i />{label.name}</span>)}</span>}
       </button>
+      <NoteChecklistPreview note={note} forge={forge} />
       <div className="pn-card-actions">
         <span>{new Date(note.updatedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
         <button className={`pn-icon ${note.pinned ? 'is-pinned' : ''}`} aria-label={`${note.pinned ? 'Unpin' : 'Pin'} note: ${noteTitle(note)}`} aria-pressed={Boolean(note.pinned)} onClick={() => attempt(() => forge.actions.updatePersonalNote(note.id, { pinned: !note.pinned }))}><Pin size={15} /></button>
@@ -196,7 +200,8 @@ export function PersonalNotes({ forge, onAddProject, initialProjectId, onProject
       <section className="pn-editor" aria-label="Note editor" style={noteStyle(selected.color)}>
         <div className="pn-editor-top"><button className="pn-text-button" onClick={() => openNote(parentOf(selected, notes)?.id)}><ArrowLeft size={16} />{parentOf(selected, notes) ? 'Back to parent' : 'All notes'}</button><div><button className={`pn-icon ${selected.pinned ? 'is-pinned' : ''}`} aria-label={selected.pinned ? 'Unpin current note' : 'Pin current note'} aria-pressed={Boolean(selected.pinned)} onClick={() => updateNote({ pinned: !selected.pinned })}><Pin size={16} /></button><button className="pn-icon" aria-label="Delete current note and sub-notes" onClick={() => removeNote(selected)}><Trash2 size={16} /></button><button className="pn-small-button" onClick={() => openNote(parentOf(selected, notes)?.id)}><Check size={15} />Done</button></div></div>
         <label className="pn-title-label"><span className="sr-only">Note title</span><input autoFocus key={selected.id} aria-label="Note title" placeholder="Untitled note" value={selected.title} maxLength={300} onChange={(event) => updateNote({ title: event.target.value })} /></label>
-        <label className="pn-body-label"><span className="sr-only">Note text</span><textarea aria-label="Note text" placeholder="Write it down. This space is yours…" value={selected.body} rows={7} maxLength={100000} onChange={(event) => updateNote({ body: event.target.value })} /></label>
+        <label className="pn-body-label"><span className="sr-only">Note text</span><textarea className={selected.checklist?.length ? 'pn-body-with-checklist' : ''} aria-label="Note text" placeholder="Add a note, or start a checklist below…" value={selected.body} rows={selected.checklist?.length ? 2 : 3} maxLength={100000} onChange={(event) => updateNote({ body: event.target.value })} /></label>
+        <NoteChecklist key={selected.id} forge={forge} note={selected} />
         <div className="pn-editor-options"><fieldset className="pn-colors"><legend><Palette size={14} />Note color</legend><div>{COLORS.map((color) => <button key={color.name} type="button" title={color.name} aria-label={`${color.name} note color`} aria-pressed={selected.color === color.color} style={{ backgroundColor: color.color }} onClick={() => updateNote({ color: color.color })}>{selected.color === color.color && <Check size={15} />}</button>)}<label className="pn-color-picker" title="Custom note color"><Palette size={15} /><span className="sr-only">Custom note color</span><input aria-label="Custom note color" type="color" value={selected.color ?? '#8094ad'} onChange={(event) => updateNote({ color: event.target.value })} /></label></div></fieldset><div className="pn-note-labels"><span><Tag size={14} />Labels</span><div>{labels.map((label) => <label className={`pn-label-check ${selected.labelIds?.includes(label.id) ? 'active' : ''}`} key={label.id} style={noteStyle(label.color)}><input type="checkbox" checked={Boolean(selected.labelIds?.includes(label.id))} onChange={(event) => updateNote({ labelIds: event.target.checked ? [...(selected.labelIds ?? []), label.id] : selected.labelIds?.filter((id) => id !== label.id) })} />{label.name}</label>)}<button className="pn-text-button" onClick={() => setShowLabels(true)}><Plus size={13} />{labels.length ? 'Manage' : 'Create a label'}</button></div></div></div>
         <p className="pn-save-state" role="status"><Check size={12} />{cloudState}</p>
       </section>

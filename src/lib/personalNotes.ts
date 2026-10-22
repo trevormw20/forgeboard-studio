@@ -1,6 +1,7 @@
 import type { NoteLabel, PersonalNote, Workspace } from '../types'
+import { validateNoteChecklist } from './noteChecklist'
 
-export type PersonalNoteInput = Pick<PersonalNote, 'title' | 'body'> & Partial<Pick<PersonalNote, 'projectId' | 'parentId' | 'color' | 'labelIds' | 'pinned'>>
+export type PersonalNoteInput = Pick<PersonalNote, 'title' | 'body'> & Partial<Pick<PersonalNote, 'projectId' | 'parentId' | 'color' | 'labelIds' | 'pinned' | 'checklist'>>
 export type PersonalNoteUpdate = Partial<PersonalNoteInput>
 export type NoteLabelInput = Pick<NoteLabel, 'name' | 'color'> & Partial<Pick<NoteLabel, 'id' | 'projectId'>>
 
@@ -34,10 +35,11 @@ function descendants(notes: PersonalNote[], id: string): Set<string> {
   return found
 }
 
-function validateNote(workspace: Workspace, note: PersonalNote): PersonalNote {
+function validateNote(workspace: Workspace, note: PersonalNote, checkChecklist = true): PersonalNote {
   assertProject(workspace, note.projectId)
   if (typeof note.title !== 'string' || typeof note.body !== 'string') throw new Error('A note needs a text title and body.')
   const normalized = { ...note, color: normalizeNoteColor(note.color), labelIds: [...new Set(note.labelIds ?? [])] }
+  if (checkChecklist && note.checklist !== undefined) normalized.checklist = validateNoteChecklist(note.checklist)
   if (normalized.title.length > 300) throw new Error('Keep the note title under 300 characters.')
   if (normalized.body.length > 100_000) throw new Error('Split notes larger than 100,000 characters into sub-notes.')
   const notes = workspace.personalNotes ?? []
@@ -79,11 +81,11 @@ export function editPersonalNote(workspace: Workspace, id: string, input: Person
   }
   // Explicit fields keep identity, timestamps and deletion state out of editable input.
   const editable: PersonalNoteUpdate = {}
-  for (const key of ['title', 'body', 'projectId', 'parentId', 'color', 'labelIds', 'pinned'] as const) {
+  for (const key of ['title', 'body', 'projectId', 'parentId', 'color', 'labelIds', 'pinned', 'checklist'] as const) {
     if (key in input) Object.assign(editable, { [key]: input[key] })
   }
   if (!('parentId' in input) && note.parentId && !personalNoteParent(note, visiblePersonalNotes(workspace))) editable.parentId = undefined
-  Object.assign(note, validateNote(workspace, { ...note, ...editable, updatedAt: now }))
+  Object.assign(note, validateNote(workspace, { ...note, ...editable, updatedAt: now }, 'checklist' in input))
 }
 
 export function removePersonalNote(workspace: Workspace, id: string, now: string): void {
