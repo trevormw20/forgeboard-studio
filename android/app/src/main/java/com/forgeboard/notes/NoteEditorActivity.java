@@ -2,7 +2,10 @@ package com.forgeboard.notes;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.graphics.Paint;
 import android.os.Bundle;
 import android.os.Handler;
@@ -36,11 +39,16 @@ public final class NoteEditorActivity extends Activity {
     private LinearLayout checklist, labels, children;
     private Button pin;
     private boolean titleDirty, bodyDirty, loading;
+    private boolean receiverRegistered;
+    private boolean draftBlocked;
+    private String knownTitle="",knownBody="";
+    private final Map<String,JSONObject> knownItems=new LinkedHashMap<>();
     private android.window.OnBackInvokedCallback backCallback;
     private final Map<String,String> pendingText = new LinkedHashMap<>();
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable saveDraft = this::flush;
     private final Runnable upload = () -> repository.sync(error -> { if(!isFinishing() && !isDestroyed()) updateStatus(error); });
+    private final BroadcastReceiver changes=new BroadcastReceiver() { @Override public void onReceive(Context c,Intent intent) { refreshFromRepository(); } };
     @Override public void onCreate(Bundle state) {
         super.onCreate(state); repository = NotesRepository.get(this);
         noteId = state == null ? MainActivity.nullable(getIntent().getStringExtra(EXTRA_NOTE_ID)) : state.getString(EXTRA_NOTE_ID);
@@ -54,7 +62,7 @@ public final class NoteEditorActivity extends Activity {
         location=Ui.muted(this,""); content.addView(location); Ui.gap(content,8);
         title=Ui.input(this,"Note title",note.optString("title"),"noteTitle",true); title.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(300)}); title.setTextSize(24); title.setTypeface(null,android.graphics.Typeface.BOLD); content.addView(title);
         body=Ui.input(this,"Write a note…",note.optString("body"),"noteBody",true); body.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(100000)}); body.setMinLines(3); content.addView(body);
-        title.addTextChangedListener(watcher(() -> titleDirty=true)); body.addTextChangedListener(watcher(() -> bodyDirty=true));
+        knownTitle=note.optString("title"); knownBody=note.optString("body"); title.addTextChangedListener(watcher(() -> titleDirty=true)); body.addTextChangedListener(watcher(() -> bodyDirty=true));
         LinearLayout tools=Ui.row(this); pin=Ui.button(this,"Pin",this::togglePin); tools.addView(pin); tools.addView(Ui.button(this,"Color",this::noteColor)); tools.addView(Ui.button(this,"Labels",this::labelPicker)); content.addView(tools);
         labels=Ui.column(this); content.addView(labels); status=Ui.muted(this,""); status.setTag("editorStatus"); status.setPadding(0,Ui.dp(this,8),0,Ui.dp(this,16)); content.addView(status);
         content.addView(Ui.title(this,"Checklist",20)); content.addView(Ui.muted(this,"Slide the handle right to indent or left to outdent. Use ••• for more options. Each box is independent.")); Ui.gap(content,8);
@@ -70,7 +78,20 @@ public final class NoteEditorActivity extends Activity {
     private boolean flush() {
         handler.removeCallbacks(saveDraft); if(title==null || (!titleDirty && !bodyDirty && pendingText.isEmpty())) return true;
         boolean saveTitle=titleDirty, saveBody=bodyDirty; String titleText=title.getText().toString(), bodyText=body.getText().toString(); Map<String,String> edits=new LinkedHashMap<>(pendingText);
-        try { repository.edit(ws -> { JSONObject changes=new JSONObject(); if(saveTitle) changes.put("title",titleText); if(saveBody) changes.put("body",bodyText); if(changes.length()>0) NotesCore.updateNote(ws,noteId,changes,Ui.now()); for(Map.Entry<String,String> entry:edits.entrySet()) NotesCore.updateChecklistText(ws,noteId,entry.getKey(),entry.getValue(),Ui.now()); }); titleDirty=false; bodyDirty=false; for(String id:edits.keySet()) pendingText.remove(id); updateStatus(null); scheduleUpload(); return true; }
+        final JSONObject[] retained={null};
+        try { repository.edit(ws -> {
+            JSONObject latest=NotesCore.findNote(ws,noteId); if(latest==null) throw new IllegalArgumentException("The note is unavailable. Keep the editor open and copy your draft.");
+            JSONObject draft=new JSONObject(latest.toString()); if(saveTitle) draft.put("title",titleText); if(saveBody) draft.put("body",bodyText);
+            boolean stale=saveTitle&&!latest.optString("title").equals(knownTitle)&&!latest.optString("title").equals(titleText) || saveBody&&!latest.optString("body").equals(knownBody)&&!latest.optString("body").equals(bodyText);
+            boolean blocked=MainActivity.deleted(latest); JSONArray items=draft.optJSONArray("checklist"); if(items==null) { items=new JSONArray(); draft.put("checklist",items); }
+            for(Map.Entry<String,String> entry:edits.entrySet()) { JSONObject item=null; for(int i=0;i<items.length();i++) { JSONObject candidate=items.optJSONObject(i); if(candidate!=null && MainActivity.same(candidate.optString("id"),entry.getKey())) item=candidate; } JSONObject expected=knownItems.get(entry.getKey());
+                if(item==null || MainActivity.deleted(item)) { blocked=true; if(expected!=null) { JSONObject copy=new JSONObject(expected.toString()); copy.put("text",entry.getValue()); copy.remove("deletedAt"); boolean replaced=false; for(int i=0;i<items.length();i++) if(items.optJSONObject(i)!=null && MainActivity.same(items.optJSONObject(i).optString("id"),entry.getKey())) { items.put(i,copy); replaced=true; break; } if(!replaced) items.put(copy); } }
+                else { if(expected!=null && !item.optString("text").equals(expected.optString("text")) && !item.optString("text").equals(entry.getValue())) stale=true; item.put("text",entry.getValue()); }
+            }
+            if(stale || blocked) { draft.put("updatedAt",Ui.now()); JSONArray conflicts=ws.optJSONArray("conflicts"); if(conflicts==null) { conflicts=new JSONArray(); ws.put("conflicts",conflicts); } conflicts.put(new JSONObject().put("id","conflict-editor-"+java.util.UUID.randomUUID()).put("entityType","personal-note").put("entityId",noteId).put("detectedAt",Ui.now()).put("local",draft).put("remote",new JSONObject(latest.toString())).put("resolution","Preserved the editor draft and the latest synced version as separate full snapshots.")); }
+            if(blocked) { retained[0]=draft; return; }
+            JSONObject changes=new JSONObject(); if(saveTitle) changes.put("title",titleText); if(saveBody) changes.put("body",bodyText); if(changes.length()>0) NotesCore.updateNote(ws,noteId,changes,Ui.now()); for(Map.Entry<String,String> entry:edits.entrySet()) NotesCore.updateChecklistText(ws,noteId,entry.getKey(),entry.getValue(),Ui.now());
+        }); titleDirty=false; bodyDirty=false; if(saveTitle) knownTitle=titleText; if(saveBody) knownBody=bodyText; for(String id:edits.keySet()) { pendingText.remove(id); JSONObject item=knownItems.get(id); if(item!=null) item.put("text",edits.get(id)); } updateStatus(null); scheduleUpload(); if(retained[0]!=null) { draftBlocked=true; offerRetainedDraft(retained[0]); return false; } return true; }
         catch(Exception e) { if(status!=null) status.setText("Not saved: "+e.getMessage()+". Keep this editor open and try again."); return false; }
     }
     private void scheduleUpload() { handler.removeCallbacks(upload); handler.postDelayed(upload,1400); }
@@ -83,14 +104,15 @@ public final class NoteEditorActivity extends Activity {
     }
     private void togglePin() { JSONObject n=note(); if(n!=null) mutate(ws->NotesCore.updateNote(ws,noteId,new JSONObject().put("pinned",!n.optBoolean("pinned")),Ui.now()),true); }
     private void renderChecklist() {
-        checklist.removeAllViews(); JSONObject n=note(); if(n==null) return;
+        checklist.removeAllViews(); JSONObject n=note(); if(n==null) return; knownItems.clear();
         for(NotesCore.Row item:NotesCore.orderedChecklist(n)) {
+            try { knownItems.put(item.item.optString("id"),new JSONObject(item.item.toString())); } catch(Exception ignored) { }
             String id=item.item.optString("id"); LinearLayout wrap=Ui.column(this); wrap.setPadding(Ui.dp(this,Math.min(item.depth,3)*16),0,0,0); LinearLayout row=Ui.row(this); row.setGravity(Gravity.TOP); row.setBackground(Ui.shape(Ui.SURFACE,Ui.dp(this,12))); LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-1,-2); rp.bottomMargin=Ui.dp(this,7); wrap.addView(row,rp);
             Button grip=Ui.button(this,"⠿",() -> itemMenu(id)); grip.setContentDescription("Drag to indent checklist item, or tap for options"); grip.setMinWidth(Ui.dp(this,48)); grip.setMinimumWidth(Ui.dp(this,48)); grip.setPadding(0,0,0,0); row.addView(grip,new LinearLayout.LayoutParams(Ui.dp(this,48),Ui.dp(this,52))); final float[] down={0}; final boolean[] moved={false};
             grip.setOnTouchListener((v,event) -> { if(event.getAction()==MotionEvent.ACTION_DOWN) { down[0]=event.getRawX(); moved[0]=false; return true; } if(event.getAction()==MotionEvent.ACTION_MOVE && Math.abs(event.getRawX()-down[0])>Ui.dp(this,18)) { moved[0]=true; v.getParent().requestDisallowInterceptTouchEvent(true); return true; } if(event.getAction()==MotionEvent.ACTION_UP) { float dx=event.getRawX()-down[0]; if(Math.abs(dx)>Ui.dp(this,42)) move(id,dx>0?"indent":"outdent"); else if(!moved[0]) v.performClick(); return true; } return event.getAction()==MotionEvent.ACTION_CANCEL; });
             CheckBox check=new CheckBox(this); check.setContentDescription("Complete "+item.item.optString("text")); check.setTag("checklistCheck:"+id); check.setChecked(MainActivity.nullable(item.item.optString("completedAt"))!=null); check.setButtonTintList(android.content.res.ColorStateList.valueOf(Ui.ACCENT)); check.setMinHeight(Ui.dp(this,52)); check.setMinWidth(Ui.dp(this,48)); row.addView(check,new LinearLayout.LayoutParams(Ui.dp(this,48),Ui.dp(this,52)));
             EditText text=Ui.input(this,"Checklist item",pendingText.containsKey(id)?pendingText.get(id):item.item.optString("text"),"checklistText:"+id,true); text.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(10000)}); text.setPadding(Ui.dp(this,2),Ui.dp(this,12),Ui.dp(this,2),Ui.dp(this,12)); text.setBackgroundColor(android.graphics.Color.TRANSPARENT); text.setTextSize(16); if(check.isChecked()) { text.setPaintFlags(text.getPaintFlags()|Paint.STRIKE_THRU_TEXT_FLAG); text.setTextColor(Ui.MUTED); } row.addView(text,new LinearLayout.LayoutParams(0,-2,1)); text.addTextChangedListener(watcher(() -> pendingText.put(id,text.getText().toString())));
-            check.setOnCheckedChangeListener((b,value) -> { if(mutate(ws->NotesCore.setChecklistChecked(ws,noteId,id,value,Ui.now()),false)) { text.setPaintFlags(value?text.getPaintFlags()|Paint.STRIKE_THRU_TEXT_FLAG:text.getPaintFlags()&~Paint.STRIKE_THRU_TEXT_FLAG); text.setTextColor(value?Ui.MUTED:Ui.TEXT); } });
+            check.setOnCheckedChangeListener((b,value) -> { if(loading) return; if(mutate(ws->NotesCore.setChecklistChecked(ws,noteId,id,value,Ui.now()),false)) { text.setPaintFlags(value?text.getPaintFlags()|Paint.STRIKE_THRU_TEXT_FLAG:text.getPaintFlags()&~Paint.STRIKE_THRU_TEXT_FLAG); text.setTextColor(value?Ui.MUTED:Ui.TEXT); } else { loading=true; check.setChecked(!value); loading=false; } });
             text.setOnKeyListener((v,key,event)->{ if(event.getAction()!=android.view.KeyEvent.ACTION_DOWN) return false; if(key==android.view.KeyEvent.KEYCODE_TAB) { move(id,event.isShiftPressed()?"outdent":"indent"); return true; } return false; });
             Button options=Ui.button(this,"•••",()->itemMenu(id)); options.setContentDescription("Options for "+item.item.optString("text")); options.setPadding(0,0,0,0); row.addView(options,new LinearLayout.LayoutParams(Ui.dp(this,48),Ui.dp(this,52))); checklist.addView(wrap);
             if(item.depth>3) { TextView depth=Ui.muted(this,"Nested level "+(item.depth+1)); wrap.addView(depth); }
@@ -111,12 +133,25 @@ public final class NoteEditorActivity extends Activity {
     private void manageLabels() { List<JSONObject> all=availableLabels(); String[] names=new String[all.size()+1]; names[0]="＋ New label in this notebook"; for(int i=0;i<all.size();i++) names[i+1]=all.get(i).optString("name"); new AlertDialog.Builder(this).setTitle("Manage labels").setItems(names,(d,i)->editLabel(i==0?null:all.get(i-1))).setNegativeButton("Close",null).show(); }
     private void editLabel(JSONObject label) { LinearLayout layout=Ui.column(this); Ui.pad(layout,16); EditText name=Ui.input(this,"Label name",label==null?"":label.optString("name"),"labelName",false); layout.addView(name); EditText color=Ui.input(this,"Label color (#785bc7)",label==null?"#34334f":label.optString("color"),"labelColor",false); layout.addView(color); AlertDialog.Builder dialog=new AlertDialog.Builder(this).setTitle(label==null?"New label":"Edit label").setView(layout).setNegativeButton("Cancel",null).setPositiveButton("Save",(d,w)->{ String[] id={null}; if(mutate(ws->{ id[0]=NotesCore.saveLabel(ws,label==null?null:label.optString("id"),label==null?projectId:MainActivity.nullable(label.optString("projectId")),name.getText().toString(),color.getText().toString(),Ui.now()); JSONObject n=NotesCore.findNote(ws,noteId); JSONArray ids=n.optJSONArray("labelIds"); if(ids==null) ids=new JSONArray(); boolean found=false; for(int i=0;i<ids.length();i++) if(MainActivity.same(ids.optString(i),id[0])) found=true; if(!found) ids.put(id[0]); NotesCore.updateNote(ws,noteId,new JSONObject().put("labelIds",ids),Ui.now()); },true)) labelPicker(); }); if(label!=null) dialog.setNeutralButton("Delete label",(d,w)->mutate(ws->NotesCore.deleteLabel(ws,label.optString("id"),Ui.now()),true)); dialog.show(); }
     private void deleteNote() { new AlertDialog.Builder(this).setTitle("Move note to Deleted notes?").setMessage("Its sub-notes move with it. You can restore the group from the notebook menu.").setNegativeButton("Cancel",null).setPositiveButton("Move",(d,w)->{ if(mutate(ws->NotesCore.deleteNote(ws,noteId,Ui.now()),false)) finish(); }).show(); }
-    private void sync() { if(!flush()) return; updateStatus(null); repository.sync(error->{ if(isFinishing() || isDestroyed()) return; updateStatus(error); if(!titleDirty && !bodyDirty && pendingText.isEmpty() && !title.hasFocus() && !body.hasFocus()) { JSONObject n=note(); if(n!=null && !MainActivity.deleted(n)) { loading=true; title.setText(n.optString("title")); body.setText(n.optString("body")); loading=false; renderMetadata(); renderChecklist(); renderChildren(); } } }); }
-    private void leave() { if(flush()) finish(); else Ui.message(this,"Keep your unsaved text","This note has not been saved. Leave the editor open and try again, or copy your text before leaving."); }
+    private void sync() { if(!flush()) return; updateStatus(null); repository.sync(error->{ if(isFinishing() || isDestroyed()) return; refreshFromRepository(); updateStatus(error); }); }
+    private void refreshFromRepository() {
+        if(title==null || isFinishing() || isDestroyed()) return; JSONObject n=note(); if(n==null) return; boolean remoteFocusChange=false; loading=true;
+        if(!titleDirty && !title.hasFocus()) { if(!title.getText().toString().equals(n.optString("title"))) title.setText(n.optString("title")); knownTitle=n.optString("title"); } else if(!n.optString("title").equals(knownTitle)) remoteFocusChange=true;
+        if(!bodyDirty && !body.hasFocus()) { if(!body.getText().toString().equals(n.optString("body"))) body.setText(n.optString("body")); knownBody=n.optString("body"); } else if(!n.optString("body").equals(knownBody)) remoteFocusChange=true;
+        android.view.View focus=getCurrentFocus(); boolean editingChecklist=focus instanceof EditText && focus!=title && focus!=body;
+        if(!editingChecklist && pendingText.isEmpty()) renderChecklist(); else for(NotesCore.Row item:NotesCore.orderedChecklist(n)) { String id=item.item.optString("id"); EditText text=checklist.findViewWithTag("checklistText:"+id); CheckBox check=checklist.findViewWithTag("checklistCheck:"+id); boolean checked=MainActivity.nullable(item.item.optString("completedAt"))!=null; if(check!=null) check.setChecked(checked); if(text!=null) { text.setPaintFlags(checked?text.getPaintFlags()|Paint.STRIKE_THRU_TEXT_FLAG:text.getPaintFlags()&~Paint.STRIKE_THRU_TEXT_FLAG); text.setTextColor(checked?Ui.MUTED:Ui.TEXT); } if(text!=null && !text.hasFocus() && !pendingText.containsKey(id)) { if(!text.getText().toString().equals(item.item.optString("text"))) text.setText(item.item.optString("text")); try { knownItems.put(id,new JSONObject(item.item.toString())); } catch(Exception ignored) {} } }
+        loading=false; renderMetadata(); renderChildren(); updateStatus(null); if(remoteFocusChange) status.setText("This note also changed on another device. Your current typing is safe; both versions will be kept if they differ."); if(MainActivity.deleted(n)) status.setText("Deleted on another device. Any unfinished typing will be preserved in Saved conflict copies, not discarded.");
+    }
+    private void offerRetainedDraft(JSONObject draft) { title.setEnabled(false); body.setEnabled(false); checklist.removeAllViews(); if(isFinishing() || isDestroyed()) return; new AlertDialog.Builder(this).setTitle("Your draft is safely preserved").setMessage("This note or checklist item was deleted elsewhere while you were editing. Your text is saved in conflict copies. Recover a separate new note, or leave the original deleted.").setCancelable(false).setNegativeButton("Back to notes",(d,w)->finish()).setPositiveButton("Recover as new note",(d,w)->{ try { String[] id={null}; repository.edit(ws->id[0]=NotesCore.recoverNoteSnapshot(ws,draft,Ui.now())); noteId=id[0]; draftBlocked=false; JSONObject n=note(); projectId=MainActivity.nullable(n.optString("projectId")); loading=true; title.setText(n.optString("title")); body.setText(n.optString("body")); knownTitle=n.optString("title"); knownBody=n.optString("body"); title.setEnabled(true); body.setEnabled(true); loading=false; renderMetadata(); renderChecklist(); renderChildren(); } catch(Exception e) { Ui.error(this,e); } }).show(); }
+    private void leave() { if(draftBlocked || flush()) finish(); else if(!draftBlocked) Ui.message(this,"Keep your unsaved text","This note has not been saved. Leave the editor open and try again, or copy your text before leaving."); }
     private void unavailable(String heading,String message) { new AlertDialog.Builder(this).setTitle(heading).setMessage(message).setCancelable(false).setPositiveButton("Back to notes",(d,w)->finish()).show(); }
+    // Legacy API26–32 back handling; API33+ registers OnBackInvokedCallback in onCreate.
+    @android.annotation.SuppressLint("GestureBackNavigation")
     @Override public void onBackPressed() { leave(); }
-    @Override protected void onResume() { super.onResume(); if(children!=null) { renderChildren(); renderMetadata(); updateStatus(null); } }
-    @Override protected void onPause() { flush(); handler.removeCallbacks(saveDraft); handler.removeCallbacks(upload); if(repository!=null) repository.sync(error->{}); super.onPause(); }
+    // The guarded legacy overload is necessary below API33; modern registrations are NOT_EXPORTED.
+    @android.annotation.SuppressLint("UnspecifiedRegisterReceiverFlag")
+    @Override protected void onResume() { super.onResume(); if(!receiverRegistered) { IntentFilter filter=new IntentFilter(NotesRepository.ACTION_CHANGED); if(android.os.Build.VERSION.SDK_INT>=33) registerReceiver(changes,filter,Context.RECEIVER_NOT_EXPORTED); else registerReceiver(changes,filter); receiverRegistered=true; } if(children!=null) { refreshFromRepository(); repository.sync(error->{ if(!isFinishing() && !isDestroyed()) { refreshFromRepository(); updateStatus(error); } }); } }
+    @Override protected void onPause() { flush(); handler.removeCallbacks(saveDraft); handler.removeCallbacks(upload); if(receiverRegistered) { unregisterReceiver(changes); receiverRegistered=false; } if(repository!=null) repository.sync(error->{}); super.onPause(); }
     @Override protected void onSaveInstanceState(Bundle out) { flush(); out.putString(EXTRA_NOTE_ID,noteId); super.onSaveInstanceState(out); }
     @Override protected void onDestroy() { handler.removeCallbacksAndMessages(null); if(android.os.Build.VERSION.SDK_INT>=33 && backCallback!=null) getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(backCallback); super.onDestroy(); }
 }

@@ -23,6 +23,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -189,7 +190,9 @@ public final class NotesWidgetProvider extends AppWidgetProvider {
                 row.setContentDescription(R.id.widget_checkbox, (checked ? "Uncheck " : "Check ") + clipped(value.optString("text"), 120));
                 row.setTextColor(R.id.widget_row_text, Color.parseColor(checked ? "#94A3B8" : "#E2E8F0"));
                 row.setInt(R.id.widget_row_text, "setPaintFlags", Paint.ANTI_ALIAS_FLAG | (checked ? Paint.STRIKE_THRU_TEXT_FLAG : 0));
-                row.setViewPadding(R.id.widget_row, dp(context, Math.min(item.depth, 3) * 10), 0, 0, 0);
+                int indentation = dp(context, Math.min(item.depth, 3) * 10);
+                boolean rtl = context.getResources().getConfiguration().getLayoutDirection() == View.LAYOUT_DIRECTION_RTL;
+                row.setViewPadding(R.id.widget_row, rtl ? 0 : indentation, 0, rtl ? indentation : 0, 0);
                 Intent check = new Intent(context, NotesWidgetProvider.class).setAction(ACTION_CHECK)
                         .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id).putExtra("noteId", noteId)
                         .putExtra("itemId", value.optString("id")).putExtra("checked", !checked);
@@ -274,7 +277,8 @@ public final class NotesWidgetProvider extends AppWidgetProvider {
             long age = System.currentTimeMillis() - Instant.parse(last).toEpochMilli();
             String relative = DateUtils.getRelativeTimeSpanString(Instant.parse(last).toEpochMilli(), System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS).toString();
             String prefix = age > 60 * 60 * 1000 ? "Cached · " : "Synced · ";
-            if (!message.isEmpty() && (message.toLowerCase().contains("fail") || message.toLowerCase().contains("error") || message.toLowerCase().contains("offline"))) return clipped(message, 60) + " · " + relative;
+            String normalizedMessage = message.toLowerCase(Locale.ROOT);
+            if (!message.isEmpty() && (normalizedMessage.contains("fail") || normalizedMessage.contains("error") || normalizedMessage.contains("offline"))) return clipped(message, 60) + " · " + relative;
             return prefix + relative;
         } catch (RuntimeException ignored) {
             return "Cached notes · Tap ↻ to sync";

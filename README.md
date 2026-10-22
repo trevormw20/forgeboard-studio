@@ -12,6 +12,8 @@ Forgeboard is a deadline-first, mobile-first game development planner. The publi
 
 ## Personal Notes
 
+Android users can also install the native **Forgeboard Notes** companion with real home-screen widgets. It shares this app's private GitHub vault and opens a notes-only editor. [Download and Android setup](android/README.md).
+
 Choose **Personal notes** in the sidebar (or **Notes** on a phone). Each active Forgeboard project automatically has its own notebook, plus General notes. Switch projects inside Notes using the notebook picker or project chips. **Add project notes** creates a real project; its notebook appears automatically.
 
 Notes are plain text cards with custom colors, custom colored labels, pinning, and search within the selected project. Open a note to edit it or add sub-notes; each sub-note can contain more sub-notes. Breadcrumbs show where you are. Edits save automatically through the same offline queue and private GitHub workspace as tasks. A visible status distinguishes device-only, queued, and GitHub-synced changes. Connect GitHub before expecting a note on another device.

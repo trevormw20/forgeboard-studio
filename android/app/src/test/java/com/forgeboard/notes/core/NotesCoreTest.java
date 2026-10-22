@@ -256,4 +256,52 @@ public class NotesCoreTest {
         rejects(() -> NotesCore.updateNote(workspace, noteId, object("{\"color\":\"url(javascript:bad)\"}"), T1));
         assertEquals(before, workspace.toString());
     }
+
+    @Test public void snapshotRecoveryRemapsIdsAndRepairsCyclesWithoutChangingOriginals() {
+        JSONObject workspace = workspace();
+        String noteId = addNote(workspace);
+        String a = NotesCore.addChecklistItem(workspace, noteId, "Parent", null, null, T0);
+        String b = NotesCore.addChecklistItem(workspace, noteId, "Child", a, null, T0);
+        String trash = NotesCore.addChecklistItem(workspace, noteId, "Earlier trash", b, null, T0);
+        NotesCore.setChecklistChecked(workspace, noteId, b, true, T1);
+        NotesCore.deleteChecklistItem(workspace, noteId, trash, T1);
+        JSONObject snapshot = copy(NotesCore.findNote(workspace, noteId));
+        put(item(snapshot, a), "parentId", b);
+        put(snapshot, "deletedAt", T2);
+        String original = snapshot.toString();
+        String recoveredId = NotesCore.recoverNoteSnapshot(workspace, snapshot, T3);
+        JSONObject recovered = NotesCore.findNote(workspace, recoveredId);
+        assertNotEquals(noteId, recoveredId);
+        assertEquals("snail", recovered.optString("projectId"));
+        assertEquals("Review (saved copy)", recovered.optString("title"));
+        assertEquals("Plain text", recovered.optString("body"));
+        assertFalse(recovered.has("deletedAt"));
+        assertEquals(2, NotesCore.orderedChecklist(recovered).size());
+        assertEquals(3, recovered.optJSONArray("checklist").length());
+        for (NotesCore.Row row : NotesCore.orderedChecklist(recovered)) {
+            assertEquals(0, row.depth);
+            assertNotEquals(a, row.item.optString("id"));
+            assertNotEquals(b, row.item.optString("id"));
+            if (row.item.optString("text").equals("Child")) assertEquals(T1, row.item.optString("completedAt"));
+        }
+        assertEquals(1, NotesCore.deletedChecklistRoots(recovered).size());
+        assertEquals(original, snapshot.toString());
+        assertEquals(3, NotesCore.findNote(workspace, noteId).optJSONArray("checklist").length());
+    }
+
+    @Test public void snapshotFromUnavailableProjectRecoversOnlyInGeneralWithGlobalLabels() {
+        JSONObject workspace = workspace();
+        String noteId = addNote(workspace);
+        String projectLabel = NotesCore.saveLabel(workspace, null, "snail", "Project", "#aabbcc", T0);
+        String globalLabel = NotesCore.saveLabel(workspace, null, null, "General", "#ccbbaa", T0);
+        JSONObject snapshot = copy(NotesCore.findNote(workspace, noteId));
+        put(snapshot, "labelIds", new JSONArray().put(projectLabel).put(globalLabel));
+        put(snapshot, "projectId", "unavailable-project");
+        String id = NotesCore.recoverNoteSnapshot(workspace, snapshot, T1);
+        JSONObject recovered = NotesCore.findNote(workspace, id);
+        assertFalse(recovered.has("projectId"));
+        assertEquals(1, recovered.optJSONArray("labelIds").length());
+        assertEquals(globalLabel, recovered.optJSONArray("labelIds").optString(0));
+        assertEquals("snail", NotesCore.findNote(workspace, noteId).optString("projectId"));
+    }
 }

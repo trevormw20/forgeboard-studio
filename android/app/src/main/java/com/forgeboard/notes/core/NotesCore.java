@@ -113,6 +113,71 @@ public final class NotesCore {
         return id;
     }
 
+    /**
+     * Recovers one full conflict snapshot as a new, active top-level note.
+     * Original note/conflict data is never mutated. Checklist trash/checkmarks
+     * survive, while broken/cyclic links are promoted to visible roots.
+     */
+    public static String recoverNoteSnapshot(JSONObject workspace, JSONObject snapshot, String now) {
+        checkTime(now);
+        if (snapshot == null || !(snapshot.opt("body") instanceof String)) throw new IllegalArgumentException("This saved version is not a note.");
+        JSONObject note = copy(snapshot);
+        String projectId = scope(note);
+        JSONObject project = projectId == null ? null : find(objects(workspace, "projects"), projectId);
+        if (projectId != null && (project == null || deleted(project))) projectId = null;
+        put(note, "projectId", projectId);
+        String originalTitle = string(note, "title");
+        if (originalTitle == null || originalTitle.isEmpty()) originalTitle = "Untitled note";
+        String title = originalTitle + " (saved copy)";
+        put(note, "title", title.substring(0, Math.min(title.length(), 300)));
+        put(note, "body", text(string(note, "body"), 100_000, "Split notes larger than 100,000 characters into sub-notes."));
+        try { put(note, "color", normalizeColor(string(note, "color"))); }
+        catch (IllegalArgumentException invalidColor) { note.remove("color"); }
+        JSONArray labels = new JSONArray();
+        Set<String> included = new HashSet<>();
+        for (JSONObject label : objects(workspace, "noteLabels")) {
+            String labelId = string(label, "id");
+            if (labelId != null && !deleted(label) && (scope(label) == null || Objects.equals(projectId, scope(label))) && contains(note.optJSONArray("labelIds"), labelId) && included.add(labelId)) labels.put(labelId);
+        }
+        put(note, "labelIds", labels);
+        if (snapshot.has("checklist")) {
+            JSONArray source = snapshot.optJSONArray("checklist");
+            if (source == null || source.length() > MAX_ITEMS) throw new IllegalArgumentException("This saved checklist is invalid or contains more than 5,000 items.");
+            List<JSONObject> originals = objects(source);
+            if (originals.size() != source.length()) throw new IllegalArgumentException("This saved checklist has an invalid item.");
+            Map<String, JSONObject> map = byId(originals);
+            Map<String, String> ids = new HashMap<>();
+            for (JSONObject original : originals) {
+                String oldId = string(original, "id");
+                if (oldId == null || oldId.isEmpty() || ids.containsKey(oldId)) throw new IllegalArgumentException("Each saved checklist item needs a unique identity.");
+                ids.put(oldId, "check-" + UUID.randomUUID());
+            }
+            JSONArray recovered = new JSONArray();
+            for (JSONObject original : originals) {
+                JSONObject item = copy(original);
+                put(item, "id", ids.get(string(original, "id")));
+                put(item, "text", text(string(original, "text"), 10_000, "A saved checklist item must contain fewer than 10,000 characters."));
+                put(item, "parentId", ids.get(snapshotParent(original, map)));
+                put(item, "order", itemOrder(original));
+                // Preserve valid original creation/updated dates and tombstones.
+                // Older snapshots without required dates get recovery dates.
+                for (String key : new String[]{"createdAt", "updatedAt"}) if (!validTime(string(item, key))) put(item, key, now);
+                for (String key : new String[]{"completedAt", "deletedAt"}) if (item.has(key) && !validTime(string(item, key))) throw new IllegalArgumentException("This saved checklist has an invalid completion/deletion date.");
+                recovered.put(item);
+            }
+            put(note, "checklist", recovered);
+        }
+        String id = "note-" + UUID.randomUUID();
+        put(note, "id", id);
+        put(note, "createdAt", now);
+        put(note, "updatedAt", now);
+        note.remove("parentId");
+        note.remove("deletedAt");
+        append(workspace, "personalNotes", note);
+        touch(workspace, now);
+        return id;
+    }
+
     /** Only explicit editable note fields are accepted; identity and scope cannot be changed. */
     public static void updateNote(JSONObject workspace, String id, JSONObject changes, String now) {
         checkTime(now);
@@ -120,6 +185,7 @@ public final class NotesCore {
         for (String key : new String[]{"title", "body", "color", "labelIds", "pinned", "parentId"}) {
             if (changes.has(key)) put(draft, key, copyValue(changes.opt(key)));
         }
+        if (changes.has("color") && changes.opt("color") != JSONObject.NULL && !(changes.opt("color") instanceof String)) throw new IllegalArgumentException("Choose a valid hex color.");
         put(draft, "title", text(string(draft, "title"), 300, "Keep the note title under 300 characters."));
         put(draft, "body", text(string(draft, "body"), 100_000, "Split notes larger than 100,000 characters into sub-notes."));
         put(draft, "color", normalizeColor(string(draft, "color")));
@@ -439,6 +505,22 @@ public final class NotesCore {
     private static void checkTime(String now) {
         try { Instant.parse(now); }
         catch (Exception error) { throw new IllegalArgumentException("Use a valid ISO timestamp.", error); }
+    }
+    private static boolean validTime(String value) {
+        try { Instant.parse(value); return true; }
+        catch (Exception ignored) { return false; }
+    }
+
+    private static String snapshotParent(JSONObject item, Map<String, JSONObject> map) {
+        String parent = string(item, "parentId"), cursorId = parent;
+        Set<String> seen = new HashSet<>();
+        seen.add(string(item, "id"));
+        while (cursorId != null) {
+            JSONObject cursor = map.get(cursorId);
+            if (cursor == null || !seen.add(cursorId) || (!deleted(item) && deleted(cursor))) return null;
+            cursorId = string(cursor, "parentId");
+        }
+        return parent;
     }
     private static String text(String value, int limit, String error) {
         if (value == null || value.length() > limit) throw new IllegalArgumentException(error);
