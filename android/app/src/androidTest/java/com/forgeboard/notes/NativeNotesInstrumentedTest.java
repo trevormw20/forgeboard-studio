@@ -21,6 +21,7 @@ import android.os.SystemClock;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.CheckBox;
 import android.widget.EditText;
@@ -52,6 +53,7 @@ import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -71,6 +73,10 @@ public final class NativeNotesInstrumentedTest {
     @Before public void prepareFakeOfflineWorkspace() throws Exception {
         context = InstrumentationRegistry.getInstrumentation().getTargetContext();
         assertTrue("These tests must run only in the dedicated debug app", context.getPackageName().endsWith(".debug"));
+        // AOSP Quickstep can ANR under emulator/Gradle CPU contention. Stop only that test launcher;
+        // do not dismiss or conceal any Forgeboard errors.
+        stopContendedEmulatorLauncher(InstrumentationRegistry.getInstrumentation().getUiAutomation());
+        idle();
         repository = NotesRepository.get(context);
         assertFalse("Never run fixture tests against a connected vault", repository.isConnected());
         JSONObject fixture = fixture();
@@ -300,7 +306,7 @@ public final class NativeNotesInstrumentedTest {
                     screen.setBackgroundColor(Ui.BG);
                     screen.setPadding(Ui.dp(activity, 18), Ui.dp(activity, 48), Ui.dp(activity, 18), Ui.dp(activity, 32));
                     View widget = remoteViews.apply(activity, screen);
-                    screen.addView(widget, new FrameLayout.LayoutParams(-1, -1));
+                    screen.addView(widget, new FrameLayout.LayoutParams(-1, Ui.dp(activity, 500)));
                     activity.setContentView(screen);
                     assertEquals("Demo release plan", ((TextView) widget.findViewById(R.id.widget_title)).getText().toString());
                     LinearLayout rows = widget.findViewById(R.id.widget_rows);
@@ -396,9 +402,11 @@ public final class NativeNotesInstrumentedTest {
     private static void idle() { InstrumentationRegistry.getInstrumentation().waitForIdleSync(); }
 
     private void screenshot(String name) throws Exception {
+        UiAutomation automation = InstrumentationRegistry.getInstrumentation().getUiAutomation();
+        stopContendedEmulatorLauncher(automation);
         idle();
         SystemClock.sleep(350); // Let the rendered frame, not just the main message queue, settle.
-        UiAutomation automation = InstrumentationRegistry.getInstrumentation().getUiAutomation();
+        assertFalse("An unexpected Android ANR/crash dialog is covering the app", hasAndroidErrorDialog(automation.getRootInActiveWindow()));
         Bitmap bitmap = automation.takeScreenshot();
         assertNotNull("The emulator did not return a screenshot", bitmap);
         File directory = new File(context.getExternalFilesDir(null), "qa");
@@ -426,6 +434,21 @@ public final class NativeNotesInstrumentedTest {
             while ((count = stream.read(buffer)) != -1) output.write(buffer, 0, count); // EOF waits for this executable to finish.
             return new String(output.toByteArray(), StandardCharsets.UTF_8);
         }
+    }
+
+    private void stopContendedEmulatorLauncher(UiAutomation automation) throws Exception {
+        String hardware = android.os.Build.HARDWARE.toLowerCase(Locale.ROOT);
+        boolean emulator = hardware.contains("ranchu") || hardware.contains("goldfish") || android.os.Build.FINGERPRINT.startsWith("generic");
+        if (context.getPackageName().endsWith(".debug") && emulator) shellOutput(automation, "am force-stop com.android.launcher3");
+    }
+
+    private static boolean hasAndroidErrorDialog(AccessibilityNodeInfo node) {
+        if (node == null) return false;
+        String text = String.valueOf(node.getText()).toLowerCase(Locale.ROOT);
+        if (text.contains("isn't responding") || text.contains("isn’t responding") || text.contains("is not responding")
+                || text.contains("keeps stopping") || text.contains("has stopped")) return true;
+        for (int i = 0; i < node.getChildCount(); i++) if (hasAndroidErrorDialog(node.getChild(i))) return true;
+        return false;
     }
 
     private static JSONObject item(JSONObject note, String id) throws Exception {
