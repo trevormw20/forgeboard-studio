@@ -173,6 +173,94 @@ public final class NativeNotesInstrumentedTest {
         assertFalse(saved.get(0).item.has("completedAt"));
     }
 
+    @Test public void focusedEditorRetainsCompleteLocalAndConcurrentCloudBodySnapshots() throws Exception {
+        String cloudBody = "Cloud revision: ship the verified demo first.\nKeep the original build available until the new one passes smoke tests.";
+        String localBody = "My focused editor draft: test the first five minutes and the ending.\nDo not lose this second paragraph while another device synchronizes.";
+        try (ActivityScenario<NoteEditorActivity> scenario = ActivityScenario.launch(new Intent(context, NoteEditorActivity.class).putExtra("noteId", NOTE))) {
+            scenario.onActivity(activity -> {
+                EditText body = tagged(activity.getWindow().getDecorView(), "noteBody", EditText.class);
+                assertTrue(body.requestFocus());
+                try {
+                    // Simulate the repository changing while the current editor still holds its loaded version.
+                    repository.edit(ws -> {
+                        NotesCore.updateNote(ws, NOTE, new JSONObject().put("body", cloudBody), NOW);
+                        NotesCore.setChecklistChecked(ws, NOTE, ROOT, true, NOW);
+                        NotesCore.findNote(ws, NOTE).put("remoteOnlyMetadata", "full cloud snapshot sentinel");
+                    });
+                } catch (Exception error) { throw new AssertionError(error); }
+                body.setText(localBody);
+                assertTrue(body.hasFocus());
+            });
+            JSONObject conflict = waitForConflict(localBody);
+            JSONObject local = conflict.getJSONObject("local"), remote = conflict.getJSONObject("remote");
+            assertEquals("personal-note", conflict.getString("entityType"));
+            assertEquals(NOTE, conflict.getString("entityId"));
+            assertEquals(localBody, local.getString("body"));
+            assertEquals(cloudBody, remote.getString("body"));
+            for (JSONObject snapshot : new JSONObject[]{local, remote}) {
+                assertEquals(NOTE, snapshot.getString("id"));
+                assertEquals(PROJECT, snapshot.getString("projectId"));
+                assertEquals("Demo release plan", snapshot.getString("title"));
+                assertEquals("#7A82CC", snapshot.getString("color"));
+                assertEquals("full cloud snapshot sentinel", snapshot.getString("remoteOnlyMetadata"));
+                assertEquals(3, snapshot.getJSONArray("checklist").length());
+                assertTrue(item(snapshot, ROOT).has("completedAt"));
+                assertEquals("Test the first five minutes", item(snapshot, GRANDCHILD).getString("text"));
+            }
+            assertEquals(localBody, NotesCore.findNote(repository.snapshot(), NOTE).getString("body"));
+            assertTrue(repository.hasPendingWrites());
+            JSONObject durable = new SecureStore(context).read().getJSONObject("workspace");
+            assertEquals(cloudBody, durable.getJSONArray("conflicts").getJSONObject(0).getJSONObject("remote").getString("body"));
+        }
+    }
+
+    @Test public void focusedTypingSurvivesConcurrentNoteAndChecklistDeletionWithoutRestoringOriginal() throws Exception {
+        String originalBody = NotesCore.findNote(repository.snapshot(), NOTE).getString("body");
+        String localBody = "Unfinished body draft that must survive deletion elsewhere.\nThis complete second line also needs to remain recoverable.";
+        String localChecklistText = "My unfinished checklist edit — keep every word, including this final recovery sentinel.";
+        try (ActivityScenario<NoteEditorActivity> scenario = ActivityScenario.launch(new Intent(context, NoteEditorActivity.class).putExtra("noteId", NOTE))) {
+            scenario.onActivity(activity -> {
+                View decor = activity.getWindow().getDecorView();
+                EditText body = tagged(decor, "noteBody", EditText.class);
+                body.requestFocus();
+                body.setText(localBody);
+                EditText checklistText = tagged(decor, "checklistText:" + CHILD, EditText.class);
+                assertTrue(checklistText.requestFocus());
+                checklistText.setText(localChecklistText);
+                try {
+                    // Run in the same UI callback before the draft debounce can execute.
+                    repository.edit(ws -> {
+                        NotesCore.deleteChecklistItem(ws, NOTE, CHILD, NOW);
+                        NotesCore.deleteNote(ws, NOTE, NOW);
+                    });
+                } catch (Exception error) { throw new AssertionError(error); }
+                assertTrue(checklistText.hasFocus());
+            });
+            JSONObject conflict = waitForConflict(localBody);
+            JSONObject latest = NotesCore.findNote(repository.snapshot(), NOTE);
+            assertTrue("The original note must stay in Deleted notes", latest.has("deletedAt"));
+            assertTrue("The original checklist item must stay deleted", item(latest, CHILD).has("deletedAt"));
+            assertEquals(originalBody, latest.getString("body"));
+            assertEquals("Upload the build", item(latest, CHILD).getString("text"));
+            assertTrue(NotesCore.activeNotes(repository.snapshot(), PROJECT).isEmpty());
+            JSONObject local = conflict.getJSONObject("local"), remote = conflict.getJSONObject("remote");
+            assertEquals(localBody, local.getString("body"));
+            assertEquals(localChecklistText, item(local, CHILD).getString("text"));
+            assertEquals(3, local.getJSONArray("checklist").length());
+            assertEquals(NOTE, local.getString("id"));
+            assertEquals(PROJECT, local.getString("projectId"));
+            assertEquals("Demo release plan", local.getString("title"));
+            assertEquals(originalBody, remote.getString("body"));
+            assertTrue(remote.has("deletedAt"));
+            assertTrue(item(remote, CHILD).has("deletedAt"));
+            assertEquals("Upload the build", item(remote, CHILD).getString("text"));
+            JSONObject durable = new SecureStore(context).read().getJSONObject("workspace");
+            JSONObject durableDraft = durable.getJSONArray("conflicts").getJSONObject(0).getJSONObject("local");
+            assertEquals(localBody, durableDraft.getString("body"));
+            assertEquals(localChecklistText, item(durableDraft, CHILD).getString("text"));
+        }
+    }
+
     @Test public void remoteViewsRenderAndRepeatedWidgetClickKeepsDesiredCheckedState() throws Exception {
         // Bind a genuine test host ID so the receiver's widget/project security checks stay enabled.
         Instrumentation instrumentation = InstrumentationRegistry.getInstrumentation();
@@ -271,6 +359,20 @@ public final class NativeNotesInstrumentedTest {
             SystemClock.sleep(40);
         }
         fail("Widget checkbox update did not become durable");
+    }
+
+    private JSONObject waitForConflict(String expectedLocalBody) throws Exception {
+        long deadline = SystemClock.uptimeMillis() + 5000;
+        while (SystemClock.uptimeMillis() < deadline) {
+            idle();
+            JSONArray conflicts = repository.snapshot().optJSONArray("conflicts");
+            if (conflicts != null) for (int i = 0; i < conflicts.length(); i++) {
+                JSONObject conflict = conflicts.getJSONObject(i), local = conflict.optJSONObject("local");
+                if (NOTE.equals(conflict.optString("entityId")) && local != null && expectedLocalBody.equals(local.optString("body"))) return conflict;
+            }
+            SystemClock.sleep(40);
+        }
+        throw new AssertionError("The editor did not preserve its complete draft conflict snapshot");
     }
 
     private static void pressTab(View decor, String itemId) {

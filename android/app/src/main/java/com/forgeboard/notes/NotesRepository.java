@@ -41,6 +41,7 @@ public final class NotesRepository {
     public synchronized boolean hasPendingWrites(){return state.optBoolean("dirty");}
     public synchronized boolean isSyncing(){return syncing;}
     public synchronized String lastSyncAt(){return state.optString("lastSyncAt","");}
+    public synchronized String lastError(){return loadError!=null?loadError:state.optString("lastError","");}
     public synchronized String statusMessage(){
         if(loadError!=null)return loadError;
         if(syncing)return "Syncing with your private GitHub vault…";

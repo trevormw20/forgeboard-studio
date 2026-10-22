@@ -269,7 +269,9 @@ public final class NotesWidgetProvider extends AppWidgetProvider {
 
     private static String status(NotesRepository repository) {
         String message = safe(repository.statusMessage()).replace('\n', ' ');
+        if (!repository.lastError().isEmpty()) return clipped(repository.lastError(), 105);
         if (!repository.isConnected()) return "Not connected · Tap Open to connect";
+        if (repository.isSyncing()) return "Syncing with GitHub…";
         if (repository.hasPendingWrites()) return "Edits queued · " + (message.isEmpty() ? "Will sync when connected" : clipped(message, 65));
         String last = safe(repository.lastSyncAt());
         if (last.isEmpty()) return message.isEmpty() ? "Waiting for first sync · Tap ↻" : clipped(message, 90);
