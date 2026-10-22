@@ -16,6 +16,7 @@ import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Rect;
 import android.os.Bundle;
+import android.os.ParcelFileDescriptor;
 import android.os.SystemClock;
 import android.view.KeyEvent;
 import android.view.View;
@@ -44,6 +45,8 @@ import org.junit.runner.RunWith;
 
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
@@ -400,9 +403,23 @@ public final class NativeNotesInstrumentedTest {
         assertNotNull("The emulator did not return a screenshot", bitmap);
         File directory = new File(context.getExternalFilesDir(null), "qa");
         assertTrue(directory.isDirectory() || directory.mkdirs());
-        try (FileOutputStream output = new FileOutputStream(new File(directory, name))) {
+        File screenshot = new File(directory, name);
+        try (FileOutputStream output = new FileOutputStream(screenshot)) {
             assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG, 100, output));
         } finally { bitmap.recycle(); }
+        // Gradle/UTP removes the debug app after the suite, including externalFilesDir.
+        // Export only these known fake-data images to the emulator shell's QA directory first.
+        assertTrue(name.matches("native-notes-(editor|notebook|widget)\\.png"));
+        assertTrue(screenshot.getAbsolutePath().matches("[A-Za-z0-9_./-]+"));
+        String command = "mkdir -p /data/local/tmp/forgeboard-qa && cp " + screenshot.getAbsolutePath()
+                + " /data/local/tmp/forgeboard-qa/" + name + " && echo FORGEBOARD_SCREENSHOT_COPIED";
+        try (InputStream stream = new ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand(command));
+             ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            byte[] buffer = new byte[1024];
+            int count;
+            while ((count = stream.read(buffer)) != -1) output.write(buffer, 0, count); // EOF waits for cp to finish.
+            assertEquals("FORGEBOARD_SCREENSHOT_COPIED", new String(output.toByteArray(), StandardCharsets.UTF_8).trim());
+        }
     }
 
     private static JSONObject item(JSONObject note, String id) throws Exception {

@@ -27,6 +27,8 @@ Offline edits remain in an encrypted durable outbox and merge when connected aga
 
 Personal notes are not automatically sent to Claude/OpenAI. No API key is required for this companion. No analytics, advertising, email integration or account/chat control is included.
 
+This personal planner is not a reviewed or certified health-record system. Do not add patient-identifying or sensitive health information without an appropriate compliance review. Device encryption does not make GitHub Pages or this app HIPAA-certified.
+
 ## Updates and development
 
 Install a newer release APK **over the existing app**. Keep the same application ID and signing key; increase versionCode. Never uninstall as an update step. The signing bundle is held only in the private vault's Actions secret `ANDROID_SIGNING_BUNDLE`; it is not in source or the public app. Losing/rotating that key prevents seamless updates—retain the private repository and secret.

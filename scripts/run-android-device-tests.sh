@@ -4,5 +4,5 @@ set -u
 gradle --no-daemon -p android connectedDebugAndroidTest
 test_result=$?
 mkdir -p android-device-evidence
-adb pull /sdcard/Android/data/io.github.trevormw20.forgeboard.notes.debug/files/qa android-device-evidence/ || true
+adb pull /data/local/tmp/forgeboard-qa android-device-evidence/ || true
 exit "$test_result"
