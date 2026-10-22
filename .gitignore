@@ -11,6 +11,12 @@ node_modules
 dist
 dist-ssr
 *.local
+android/.gradle/
+android/**/build/
+android/local.properties
+*.jks
+*.keystore
+*.p12
 *.relay.local.json
 
 # Editor directories and files

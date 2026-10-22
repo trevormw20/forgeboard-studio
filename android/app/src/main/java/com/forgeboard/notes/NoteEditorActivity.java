@@ -1,0 +1,122 @@
+package com.forgeboard.notes;
+
+import android.app.Activity;
+import android.app.AlertDialog;
+import android.content.Intent;
+import android.graphics.Paint;
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.text.Editable;
+import android.text.TextWatcher;
+import android.view.Gravity;
+import android.view.MotionEvent;
+import android.widget.Button;
+import android.widget.CheckBox;
+import android.widget.EditText;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.widget.TextView;
+import com.forgeboard.notes.core.NotesCore;
+import org.json.JSONArray;
+import org.json.JSONObject;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+/** A small native editor shared by app and widget. Checkbox completion is always independent. */
+public final class NoteEditorActivity extends Activity {
+    public static final String EXTRA_NOTE_ID = "noteId";
+    public static final String EXTRA_PROJECT_ID = "projectId";
+    private NotesRepository repository;
+    private String noteId, projectId;
+    private EditText title, body;
+    private TextView status, location;
+    private LinearLayout checklist, labels, children;
+    private Button pin;
+    private boolean titleDirty, bodyDirty, loading;
+    private android.window.OnBackInvokedCallback backCallback;
+    private final Map<String,String> pendingText = new LinkedHashMap<>();
+    private final Handler handler = new Handler(Looper.getMainLooper());
+    private final Runnable saveDraft = this::flush;
+    private final Runnable upload = () -> repository.sync(error -> { if(!isFinishing() && !isDestroyed()) updateStatus(error); });
+    @Override public void onCreate(Bundle state) {
+        super.onCreate(state); repository = NotesRepository.get(this);
+        noteId = state == null ? MainActivity.nullable(getIntent().getStringExtra(EXTRA_NOTE_ID)) : state.getString(EXTRA_NOTE_ID);
+        projectId = MainActivity.nullable(getIntent().getStringExtra(EXTRA_PROJECT_ID));
+        if(noteId == null) { String[] created = new String[1]; try { repository.edit(ws -> created[0] = NotesCore.addNote(ws,projectId,MainActivity.nullable(getIntent().getStringExtra("parentId")),"","",null,Ui.now())); noteId = created[0]; } catch(Exception e) { unavailable("Couldn’t open a note",e.getMessage()); return; } }
+        JSONObject note = note(); if(note == null) { unavailable("Note unavailable","This note is not in the local workspace. Open Forgeboard Notes and sync, then try again."); return; } projectId = MainActivity.nullable(note.optString("projectId"));
+        LinearLayout root = Ui.column(this); Ui.install(this,root);
+        if(android.os.Build.VERSION.SDK_INT>=33) { backCallback=this::leave; getOnBackInvokedDispatcher().registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT,backCallback); }
+        LinearLayout header=Ui.row(this); Ui.pad(header,12); Button back=Ui.button(this,"‹ Notes",this::leave); header.addView(back); header.addView(Ui.title(this,"Your note",20),new LinearLayout.LayoutParams(0,-2,1)); header.addView(Ui.button(this,"↻",this::sync)); root.addView(header);
+        ScrollView scroll=new ScrollView(this); scroll.setFillViewport(true); root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1)); LinearLayout content=Ui.column(this); content.setPadding(Ui.dp(this,18),Ui.dp(this,4),Ui.dp(this,18),Ui.dp(this,32)); scroll.addView(content);
+        location=Ui.muted(this,""); content.addView(location); Ui.gap(content,8);
+        title=Ui.input(this,"Note title",note.optString("title"),"noteTitle",true); title.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(300)}); title.setTextSize(24); title.setTypeface(null,android.graphics.Typeface.BOLD); content.addView(title);
+        body=Ui.input(this,"Write a note…",note.optString("body"),"noteBody",true); body.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(100000)}); body.setMinLines(3); content.addView(body);
+        title.addTextChangedListener(watcher(() -> titleDirty=true)); body.addTextChangedListener(watcher(() -> bodyDirty=true));
+        LinearLayout tools=Ui.row(this); pin=Ui.button(this,"Pin",this::togglePin); tools.addView(pin); tools.addView(Ui.button(this,"Color",this::noteColor)); tools.addView(Ui.button(this,"Labels",this::labelPicker)); content.addView(tools);
+        labels=Ui.column(this); content.addView(labels); status=Ui.muted(this,""); status.setTag("editorStatus"); status.setPadding(0,Ui.dp(this,8),0,Ui.dp(this,16)); content.addView(status);
+        content.addView(Ui.title(this,"Checklist",20)); content.addView(Ui.muted(this,"Slide the handle right to indent or left to outdent. Use ••• for more options. Each box is independent.")); Ui.gap(content,8);
+        checklist=Ui.column(this); content.addView(checklist); Button add=Ui.button(this,"＋ Add checklist item",() -> addItem(null,null)); add.setTag("checklistAdd"); content.addView(add,new LinearLayout.LayoutParams(-1,-2)); content.addView(Ui.button(this,"Restore deleted checklist items",this::checklistTrash));
+        Ui.gap(content,24); content.addView(Ui.title(this,"Sub-notes",20)); children=Ui.column(this); content.addView(children); content.addView(Ui.button(this,"＋ Add sub-note",() -> { if(!flush()) return; Intent intent=new Intent(this,NoteEditorActivity.class); intent.putExtra(EXTRA_PROJECT_ID,projectId); intent.putExtra("parentId",noteId); startActivity(intent); }));
+        Ui.gap(content,20); content.addView(Ui.button(this,"Move note to Deleted notes",this::deleteNote));
+        renderMetadata(); renderChecklist(); renderChildren(); updateStatus(null);
+        if(MainActivity.deleted(note)) new AlertDialog.Builder(this).setTitle("This note is deleted").setMessage("Restore this note and its sub-notes to edit them.").setCancelable(false).setNegativeButton("Back",(d,w)->finish()).setPositiveButton("Restore",(d,w)->mutate(ws->NotesCore.restoreNote(ws,noteId,Ui.now()),true)).show();
+    }
+    private TextWatcher watcher(Runnable changed) { return new TextWatcher() { public void beforeTextChanged(CharSequence s,int start,int count,int after) {} public void onTextChanged(CharSequence s,int start,int before,int count) { if(!loading) { changed.run(); handler.removeCallbacks(saveDraft); handler.postDelayed(saveDraft,350); if(status!=null) status.setText("Saving…"); } } public void afterTextChanged(Editable e) {} }; }
+    private JSONObject note() { return NotesCore.findNote(repository.snapshot(),noteId); }
+    /** Flush only dirty fields into the latest repository snapshot, never a stale full note. */
+    private boolean flush() {
+        handler.removeCallbacks(saveDraft); if(title==null || (!titleDirty && !bodyDirty && pendingText.isEmpty())) return true;
+        boolean saveTitle=titleDirty, saveBody=bodyDirty; String titleText=title.getText().toString(), bodyText=body.getText().toString(); Map<String,String> edits=new LinkedHashMap<>(pendingText);
+        try { repository.edit(ws -> { JSONObject changes=new JSONObject(); if(saveTitle) changes.put("title",titleText); if(saveBody) changes.put("body",bodyText); if(changes.length()>0) NotesCore.updateNote(ws,noteId,changes,Ui.now()); for(Map.Entry<String,String> entry:edits.entrySet()) NotesCore.updateChecklistText(ws,noteId,entry.getKey(),entry.getValue(),Ui.now()); }); titleDirty=false; bodyDirty=false; for(String id:edits.keySet()) pendingText.remove(id); updateStatus(null); scheduleUpload(); return true; }
+        catch(Exception e) { if(status!=null) status.setText("Not saved: "+e.getMessage()+". Keep this editor open and try again."); return false; }
+    }
+    private void scheduleUpload() { handler.removeCallbacks(upload); handler.postDelayed(upload,1400); }
+    private void updateStatus(String error) { if(status==null) return; String last=repository.lastSyncAt(); status.setText(error!=null ? error : repository.statusMessage()+(last==null || last.isEmpty()?"":"\nLast synced "+Ui.date(last))); }
+    private boolean mutate(NotesRepository.Edit action,boolean redraw) { if(!flush()) return false; try { repository.edit(action); if(redraw) { renderMetadata(); renderChecklist(); renderChildren(); } updateStatus(null); scheduleUpload(); return true; } catch(Exception e) { Ui.error(this,e); return false; } }
+    private void renderMetadata() {
+        JSONObject note=note(); if(note==null) return; String project="General notes"; JSONArray projects=repository.snapshot().optJSONArray("projects"); if(projects!=null) for(int i=0;i<projects.length();i++) { JSONObject p=projects.optJSONObject(i); if(p!=null && MainActivity.same(p.optString("id"),projectId)) project=p.optString("name"); }
+        String parent=MainActivity.nullable(note.optString("parentId")); JSONObject parentNote=NotesCore.findNote(repository.snapshot(),parent); location.setText(project+(parentNote==null?"":" / "+(parentNote.optString("title").isEmpty()?"Untitled parent":parentNote.optString("title"))));
+        pin.setText(note.optBoolean("pinned")?"● Pinned":"Pin"); labels.removeAllViews(); JSONArray selected=note.optJSONArray("labelIds"), all=repository.snapshot().optJSONArray("noteLabels"); if(selected!=null && all!=null) for(int i=0;i<all.length();i++) { JSONObject label=all.optJSONObject(i); if(label==null || MainActivity.deleted(label) || !allowedLabel(label)) continue; boolean included=false; for(int j=0;j<selected.length();j++) if(MainActivity.same(selected.optString(j),label.optString("id"))) included=true; if(included) { TextView chip=Ui.text(this,label.optString("name"),14,Ui.readable(Ui.color(label.optString("color"),Ui.SURFACE))); Ui.pad(chip,8); chip.setBackground(Ui.shape(Ui.color(label.optString("color"),Ui.SURFACE),Ui.dp(this,10))); LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-2,-2); lp.setMargins(0,Ui.dp(this,4),0,Ui.dp(this,4)); labels.addView(chip,lp); } }
+    }
+    private void togglePin() { JSONObject n=note(); if(n!=null) mutate(ws->NotesCore.updateNote(ws,noteId,new JSONObject().put("pinned",!n.optBoolean("pinned")),Ui.now()),true); }
+    private void renderChecklist() {
+        checklist.removeAllViews(); JSONObject n=note(); if(n==null) return;
+        for(NotesCore.Row item:NotesCore.orderedChecklist(n)) {
+            String id=item.item.optString("id"); LinearLayout wrap=Ui.column(this); wrap.setPadding(Ui.dp(this,Math.min(item.depth,3)*16),0,0,0); LinearLayout row=Ui.row(this); row.setGravity(Gravity.TOP); row.setBackground(Ui.shape(Ui.SURFACE,Ui.dp(this,12))); LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-1,-2); rp.bottomMargin=Ui.dp(this,7); wrap.addView(row,rp);
+            Button grip=Ui.button(this,"⠿",() -> itemMenu(id)); grip.setContentDescription("Drag to indent checklist item, or tap for options"); grip.setMinWidth(Ui.dp(this,48)); grip.setMinimumWidth(Ui.dp(this,48)); grip.setPadding(0,0,0,0); row.addView(grip,new LinearLayout.LayoutParams(Ui.dp(this,48),Ui.dp(this,52))); final float[] down={0}; final boolean[] moved={false};
+            grip.setOnTouchListener((v,event) -> { if(event.getAction()==MotionEvent.ACTION_DOWN) { down[0]=event.getRawX(); moved[0]=false; return true; } if(event.getAction()==MotionEvent.ACTION_MOVE && Math.abs(event.getRawX()-down[0])>Ui.dp(this,18)) { moved[0]=true; v.getParent().requestDisallowInterceptTouchEvent(true); return true; } if(event.getAction()==MotionEvent.ACTION_UP) { float dx=event.getRawX()-down[0]; if(Math.abs(dx)>Ui.dp(this,42)) move(id,dx>0?"indent":"outdent"); else if(!moved[0]) v.performClick(); return true; } return event.getAction()==MotionEvent.ACTION_CANCEL; });
+            CheckBox check=new CheckBox(this); check.setContentDescription("Complete "+item.item.optString("text")); check.setTag("checklistCheck:"+id); check.setChecked(MainActivity.nullable(item.item.optString("completedAt"))!=null); check.setButtonTintList(android.content.res.ColorStateList.valueOf(Ui.ACCENT)); check.setMinHeight(Ui.dp(this,52)); check.setMinWidth(Ui.dp(this,48)); row.addView(check,new LinearLayout.LayoutParams(Ui.dp(this,48),Ui.dp(this,52)));
+            EditText text=Ui.input(this,"Checklist item",pendingText.containsKey(id)?pendingText.get(id):item.item.optString("text"),"checklistText:"+id,true); text.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(10000)}); text.setPadding(Ui.dp(this,2),Ui.dp(this,12),Ui.dp(this,2),Ui.dp(this,12)); text.setBackgroundColor(android.graphics.Color.TRANSPARENT); text.setTextSize(16); if(check.isChecked()) { text.setPaintFlags(text.getPaintFlags()|Paint.STRIKE_THRU_TEXT_FLAG); text.setTextColor(Ui.MUTED); } row.addView(text,new LinearLayout.LayoutParams(0,-2,1)); text.addTextChangedListener(watcher(() -> pendingText.put(id,text.getText().toString())));
+            check.setOnCheckedChangeListener((b,value) -> { if(mutate(ws->NotesCore.setChecklistChecked(ws,noteId,id,value,Ui.now()),false)) { text.setPaintFlags(value?text.getPaintFlags()|Paint.STRIKE_THRU_TEXT_FLAG:text.getPaintFlags()&~Paint.STRIKE_THRU_TEXT_FLAG); text.setTextColor(value?Ui.MUTED:Ui.TEXT); } });
+            text.setOnKeyListener((v,key,event)->{ if(event.getAction()!=android.view.KeyEvent.ACTION_DOWN) return false; if(key==android.view.KeyEvent.KEYCODE_TAB) { move(id,event.isShiftPressed()?"outdent":"indent"); return true; } return false; });
+            Button options=Ui.button(this,"•••",()->itemMenu(id)); options.setContentDescription("Options for "+item.item.optString("text")); options.setPadding(0,0,0,0); row.addView(options,new LinearLayout.LayoutParams(Ui.dp(this,48),Ui.dp(this,52))); checklist.addView(wrap);
+            if(item.depth>3) { TextView depth=Ui.muted(this,"Nested level "+(item.depth+1)); wrap.addView(depth); }
+        }
+    }
+    private void itemMenu(String id) { new AlertDialog.Builder(this).setTitle("Checklist item").setItems(new String[]{"Add sub-checkbox","Add item below","Indent →","← Outdent","Move up","Move down","Delete item and sub-items"},(d,i)->{ if(i==0) addItem(id,null); else if(i==1) { JSONObject item=findItem(id); addItem(item==null?null:MainActivity.nullable(item.optString("parentId")),id); } else if(i==6) mutate(ws->NotesCore.deleteChecklistItem(ws,noteId,id,Ui.now()),true); else move(id,new String[]{"indent","outdent","up","down"}[i-2]); }).show(); }
+    private JSONObject findItem(String id) { JSONObject n=note(); if(n==null) return null; JSONArray a=n.optJSONArray("checklist"); if(a!=null) for(int i=0;i<a.length();i++) { JSONObject item=a.optJSONObject(i); if(item!=null && MainActivity.same(id,item.optString("id"))) return item; } return null; }
+    private void move(String id,String direction) { mutate(ws->NotesCore.moveChecklistItem(ws,noteId,id,direction,Ui.now()),true); }
+    private void addItem(String parent,String after) { final String[] id={null}; if(mutate(ws->id[0]=NotesCore.addChecklistItem(ws,noteId,"",parent,after,Ui.now()),true)) { EditText target=checklist.findViewWithTag("checklistText:"+id[0]); if(target!=null) { target.requestFocus(); target.post(()->((android.view.inputmethod.InputMethodManager)getSystemService(INPUT_METHOD_SERVICE)).showSoftInput(target,android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)); } } }
+    private void checklistTrash() { JSONObject n=note(); List<JSONObject> items=n==null?new ArrayList<>():NotesCore.deletedChecklistRoots(n); List<String> names=new ArrayList<>(); for(JSONObject item:items) names.add(item.optString("text").isEmpty()?"Untitled item":item.optString("text")); if(items.isEmpty()) { Ui.message(this,"Deleted checklist items","No deleted checklist items. Deleting a parent keeps its sub-items together for recovery."); return; } new AlertDialog.Builder(this).setTitle("Tap an item to restore its group").setItems(names.toArray(new String[0]),(d,i)->mutate(ws->NotesCore.restoreChecklistItem(ws,noteId,items.get(i).optString("id"),Ui.now()),true)).setNegativeButton("Close",null).show(); }
+    private void renderChildren() { if(children==null) return; children.removeAllViews(); JSONArray notes=repository.snapshot().optJSONArray("personalNotes"); if(notes==null) return; for(int i=0;i<notes.length();i++) { JSONObject n=notes.optJSONObject(i); if(n==null || MainActivity.deleted(n) || !MainActivity.same(n.optString("parentId"),noteId) || !MainActivity.same(MainActivity.nullable(n.optString("projectId")),projectId)) continue; children.addView(Ui.button(this,(n.optString("title").isEmpty()?"Untitled note":n.optString("title"))+" →",()->{ if(flush()) startActivity(new Intent(this,NoteEditorActivity.class).putExtra(EXTRA_NOTE_ID,n.optString("id"))); })); } }
+    private void noteColor() { chooseColor(note()==null?null:note().optString("color"),value->mutate(ws->NotesCore.updateNote(ws,noteId,new JSONObject().put("color",value==null?JSONObject.NULL:value),Ui.now()),true)); }
+    private interface ColorResult { void picked(String color); }
+    private void chooseColor(String current,ColorResult result) { String[] names={"Default slate","Ocean · "+Ui.COLORS[1],"Lavender · "+Ui.COLORS[2],"Plum · "+Ui.COLORS[3],"Sand · "+Ui.COLORS[4],"Forest · "+Ui.COLORS[5],"Rose · "+Ui.COLORS[6],"Blue · "+Ui.COLORS[7],"Custom hex color…"}; new AlertDialog.Builder(this).setTitle("Choose a color").setItems(names,(d,i)->{ if(i<8) result.picked(i==0?null:Ui.COLORS[i]); else { EditText input=Ui.input(this,"Hex color, for example #785bc7",current==null?"#34334f":current,"customColor",false); new AlertDialog.Builder(this).setTitle("Custom color").setView(input).setNegativeButton("Cancel",null).setPositiveButton("Apply",(a,b)->{ try { String value=input.getText().toString().trim(); if(!value.matches("#[0-9a-fA-F]{6}|#[0-9a-fA-F]{3}")) throw new IllegalArgumentException("Use a hex color such as #785bc7."); result.picked(value); } catch(Exception e) { Ui.error(this,e); } }).show(); } }).show(); }
+    private boolean allowedLabel(JSONObject label) { String scope=MainActivity.nullable(label.optString("projectId")); return scope==null || MainActivity.same(scope,projectId); }
+    private List<JSONObject> availableLabels() { List<JSONObject> result=new ArrayList<>(); JSONArray all=repository.snapshot().optJSONArray("noteLabels"); if(all!=null) for(int i=0;i<all.length();i++) { JSONObject label=all.optJSONObject(i); if(label!=null && !MainActivity.deleted(label) && allowedLabel(label)) result.add(label); } return result; }
+    private void labelPicker() { if(!flush()) return; List<JSONObject> all=availableLabels(); String[] names=new String[all.size()]; boolean[] checked=new boolean[all.size()]; JSONArray selected=note().optJSONArray("labelIds"); for(int i=0;i<all.size();i++) { names[i]=all.get(i).optString("name"); if(selected!=null) for(int j=0;j<selected.length();j++) if(MainActivity.same(all.get(i).optString("id"),selected.optString(j))) checked[i]=true; } new AlertDialog.Builder(this).setTitle(all.isEmpty()?"Create your first label":"Labels for this note").setMultiChoiceItems(names,checked,(d,i,value)->checked[i]=value).setNegativeButton("Cancel",null).setNeutralButton("Manage labels",(d,w)->manageLabels()).setPositiveButton("Apply",(d,w)->{ JSONArray ids=new JSONArray(); for(int i=0;i<all.size();i++) if(checked[i]) ids.put(all.get(i).optString("id")); mutate(ws->NotesCore.updateNote(ws,noteId,new JSONObject().put("labelIds",ids),Ui.now()),true); }).show(); }
+    private void manageLabels() { List<JSONObject> all=availableLabels(); String[] names=new String[all.size()+1]; names[0]="＋ New label in this notebook"; for(int i=0;i<all.size();i++) names[i+1]=all.get(i).optString("name"); new AlertDialog.Builder(this).setTitle("Manage labels").setItems(names,(d,i)->editLabel(i==0?null:all.get(i-1))).setNegativeButton("Close",null).show(); }
+    private void editLabel(JSONObject label) { LinearLayout layout=Ui.column(this); Ui.pad(layout,16); EditText name=Ui.input(this,"Label name",label==null?"":label.optString("name"),"labelName",false); layout.addView(name); EditText color=Ui.input(this,"Label color (#785bc7)",label==null?"#34334f":label.optString("color"),"labelColor",false); layout.addView(color); AlertDialog.Builder dialog=new AlertDialog.Builder(this).setTitle(label==null?"New label":"Edit label").setView(layout).setNegativeButton("Cancel",null).setPositiveButton("Save",(d,w)->{ String[] id={null}; if(mutate(ws->{ id[0]=NotesCore.saveLabel(ws,label==null?null:label.optString("id"),label==null?projectId:MainActivity.nullable(label.optString("projectId")),name.getText().toString(),color.getText().toString(),Ui.now()); JSONObject n=NotesCore.findNote(ws,noteId); JSONArray ids=n.optJSONArray("labelIds"); if(ids==null) ids=new JSONArray(); boolean found=false; for(int i=0;i<ids.length();i++) if(MainActivity.same(ids.optString(i),id[0])) found=true; if(!found) ids.put(id[0]); NotesCore.updateNote(ws,noteId,new JSONObject().put("labelIds",ids),Ui.now()); },true)) labelPicker(); }); if(label!=null) dialog.setNeutralButton("Delete label",(d,w)->mutate(ws->NotesCore.deleteLabel(ws,label.optString("id"),Ui.now()),true)); dialog.show(); }
+    private void deleteNote() { new AlertDialog.Builder(this).setTitle("Move note to Deleted notes?").setMessage("Its sub-notes move with it. You can restore the group from the notebook menu.").setNegativeButton("Cancel",null).setPositiveButton("Move",(d,w)->{ if(mutate(ws->NotesCore.deleteNote(ws,noteId,Ui.now()),false)) finish(); }).show(); }
+    private void sync() { if(!flush()) return; updateStatus(null); repository.sync(error->{ if(isFinishing() || isDestroyed()) return; updateStatus(error); if(!titleDirty && !bodyDirty && pendingText.isEmpty() && !title.hasFocus() && !body.hasFocus()) { JSONObject n=note(); if(n!=null && !MainActivity.deleted(n)) { loading=true; title.setText(n.optString("title")); body.setText(n.optString("body")); loading=false; renderMetadata(); renderChecklist(); renderChildren(); } } }); }
+    private void leave() { if(flush()) finish(); else Ui.message(this,"Keep your unsaved text","This note has not been saved. Leave the editor open and try again, or copy your text before leaving."); }
+    private void unavailable(String heading,String message) { new AlertDialog.Builder(this).setTitle(heading).setMessage(message).setCancelable(false).setPositiveButton("Back to notes",(d,w)->finish()).show(); }
+    @Override public void onBackPressed() { leave(); }
+    @Override protected void onResume() { super.onResume(); if(children!=null) { renderChildren(); renderMetadata(); updateStatus(null); } }
+    @Override protected void onPause() { flush(); handler.removeCallbacks(saveDraft); handler.removeCallbacks(upload); if(repository!=null) repository.sync(error->{}); super.onPause(); }
+    @Override protected void onSaveInstanceState(Bundle out) { flush(); out.putString(EXTRA_NOTE_ID,noteId); super.onSaveInstanceState(out); }
+    @Override protected void onDestroy() { handler.removeCallbacksAndMessages(null); if(android.os.Build.VERSION.SDK_INT>=33 && backCallback!=null) getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(backCallback); super.onDestroy(); }
+}
