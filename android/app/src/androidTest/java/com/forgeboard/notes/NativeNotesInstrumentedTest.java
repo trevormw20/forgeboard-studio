@@ -411,14 +411,20 @@ public final class NativeNotesInstrumentedTest {
         // Export only these known fake-data images to the emulator shell's QA directory first.
         assertTrue(name.matches("native-notes-(editor|notebook|widget)\\.png"));
         assertTrue(screenshot.getAbsolutePath().matches("[A-Za-z0-9_./-]+"));
-        String command = "mkdir -p /data/local/tmp/forgeboard-qa && cp " + screenshot.getAbsolutePath()
-                + " /data/local/tmp/forgeboard-qa/" + name + " && echo FORGEBOARD_SCREENSHOT_COPIED";
+        String destination = "/data/local/tmp/forgeboard-qa/" + name;
+        shellOutput(automation, "mkdir -p /data/local/tmp/forgeboard-qa");
+        shellOutput(automation, "cp " + screenshot.getAbsolutePath() + " " + destination);
+        assertEquals(destination, shellOutput(automation, "ls " + destination).trim());
+    }
+
+    private static String shellOutput(UiAutomation automation, String command) throws Exception {
+        // executeShellCommand does not interpret shell operators or quotes. Each invocation is one executable.
         try (InputStream stream = new ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand(command));
              ByteArrayOutputStream output = new ByteArrayOutputStream()) {
             byte[] buffer = new byte[1024];
             int count;
-            while ((count = stream.read(buffer)) != -1) output.write(buffer, 0, count); // EOF waits for cp to finish.
-            assertEquals("FORGEBOARD_SCREENSHOT_COPIED", new String(output.toByteArray(), StandardCharsets.UTF_8).trim());
+            while ((count = stream.read(buffer)) != -1) output.write(buffer, 0, count); // EOF waits for this executable to finish.
+            return new String(output.toByteArray(), StandardCharsets.UTF_8);
         }
     }
 

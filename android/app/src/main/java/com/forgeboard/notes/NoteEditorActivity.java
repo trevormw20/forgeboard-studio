@@ -48,6 +48,7 @@ public final class NoteEditorActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable saveDraft = this::flush;
     private final Runnable upload = () -> repository.sync(error -> { if(!isFinishing() && !isDestroyed()) updateStatus(error); });
+    private final Runnable poll = new Runnable() { @Override public void run() { repository.sync(error -> { if(!isFinishing() && !isDestroyed()) { refreshFromRepository(); updateStatus(error); } }); handler.postDelayed(this,30000); } };
     private final BroadcastReceiver changes=new BroadcastReceiver() { @Override public void onReceive(Context c,Intent intent) { refreshFromRepository(); } };
     @Override public void onCreate(Bundle state) {
         super.onCreate(state); repository = NotesRepository.get(this);
@@ -150,8 +151,8 @@ public final class NoteEditorActivity extends Activity {
     @Override public void onBackPressed() { leave(); }
     // The guarded legacy overload is necessary below API33; modern registrations are NOT_EXPORTED.
     @android.annotation.SuppressLint("UnspecifiedRegisterReceiverFlag")
-    @Override protected void onResume() { super.onResume(); if(!receiverRegistered) { IntentFilter filter=new IntentFilter(NotesRepository.ACTION_CHANGED); if(android.os.Build.VERSION.SDK_INT>=33) registerReceiver(changes,filter,Context.RECEIVER_NOT_EXPORTED); else registerReceiver(changes,filter); receiverRegistered=true; } if(children!=null) { refreshFromRepository(); repository.sync(error->{ if(!isFinishing() && !isDestroyed()) { refreshFromRepository(); updateStatus(error); } }); } }
-    @Override protected void onPause() { flush(); handler.removeCallbacks(saveDraft); handler.removeCallbacks(upload); if(receiverRegistered) { unregisterReceiver(changes); receiverRegistered=false; } if(repository!=null) repository.sync(error->{}); super.onPause(); }
+    @Override protected void onResume() { super.onResume(); if(!receiverRegistered) { IntentFilter filter=new IntentFilter(NotesRepository.ACTION_CHANGED); if(android.os.Build.VERSION.SDK_INT>=33) registerReceiver(changes,filter,Context.RECEIVER_NOT_EXPORTED); else registerReceiver(changes,filter); receiverRegistered=true; } if(children!=null) { refreshFromRepository(); repository.sync(error->{ if(!isFinishing() && !isDestroyed()) { refreshFromRepository(); updateStatus(error); } }); handler.removeCallbacks(poll); handler.postDelayed(poll,30000); } }
+    @Override protected void onPause() { flush(); handler.removeCallbacks(saveDraft); handler.removeCallbacks(upload); handler.removeCallbacks(poll); if(receiverRegistered) { unregisterReceiver(changes); receiverRegistered=false; } if(repository!=null) repository.sync(error->{}); super.onPause(); }
     @Override protected void onSaveInstanceState(Bundle out) { flush(); out.putString(EXTRA_NOTE_ID,noteId); super.onSaveInstanceState(out); }
     @Override protected void onDestroy() { handler.removeCallbacksAndMessages(null); if(android.os.Build.VERSION.SDK_INT>=33 && backCallback!=null) getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(backCallback); super.onDestroy(); }
 }
