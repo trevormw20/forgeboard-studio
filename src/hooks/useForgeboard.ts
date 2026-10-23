@@ -3,13 +3,12 @@ import {
   clearConnection,
   clearMutations,
   countMutations,
-  enqueueMutation,
   loadBaseWorkspace,
   loadCachedWorkspace,
   loadConnection,
   mutationIds,
   saveBaseWorkspace,
-  saveCachedWorkspace,
+  saveWorkspaceChanges,
   saveConnection,
   saveSha,
 } from '../lib/db'
@@ -17,6 +16,7 @@ import { fetchWorkspace, fetchTaskInbox, GitHubSyncError, putWorkspace } from '.
 import { importSubmissions } from '../lib/taskInbox'
 import { applyCoordination } from '../lib/coordination'
 import { createId, isoNow } from '../lib/ids'
+import { createWorkspaceAutosave, type WorkspaceAutosaveState } from '../lib/workspaceAutosave'
 import { mergeWorkspaces, sameWorkspaceContent } from '../lib/merge'
 import { DEFAULT_ESCALATION } from '../lib/priority'
 import { routeNote } from '../lib/routing'
@@ -68,6 +68,7 @@ export function useForgeboard() {
   const [connection, setConnection] = useState<ConnectionConfig>(defaultConnection)
   const [ready, setReady] = useState(false)
   const [inboxStatus, setInboxStatus] = useState('Inbox checks when connected.')
+  const [localSave, setLocalSave] = useState<WorkspaceAutosaveState>({ pending: false, saving: false })
   const [syncMeta, setSyncMeta] = useState<SyncMeta>({
     dirty: false,
     syncing: false,
@@ -78,6 +79,15 @@ export function useForgeboard() {
   const connectionRef = useRef(connection)
   const syncingRef = useRef(false)
   const revisionRef = useRef(0)
+  const [autosave] = useState(() => createWorkspaceAutosave({
+    persist: async (snapshot, mutations) => {
+      await saveWorkspaceChanges(snapshot, mutations)
+      const pendingWrites = await countMutations()
+      setSyncMeta((meta) => ({ ...meta, pendingWrites, dirty: meta.dirty || pendingWrites > 0 }))
+    },
+    onState: setLocalSave,
+  }))
+  const flushLocalSaves = useCallback(() => autosave.flush(), [autosave])
 
   useEffect(() => { workspaceRef.current = workspace }, [workspace])
   useEffect(() => { connectionRef.current = connection }, [connection])
@@ -100,7 +110,7 @@ export function useForgeboard() {
     return () => { active = false }
   }, [])
 
-  const commit = useCallback((type: string, entityId: string | undefined, change: (draft: Workspace, now: string) => void) => {
+  const commit = useCallback((type: string, entityId: string | undefined, change: (draft: Workspace, now: string) => void, debounce = false) => {
     const now = isoNow()
     const next = structuredClone(workspaceRef.current)
     change(next, now)
@@ -108,15 +118,18 @@ export function useForgeboard() {
     next.updatedAt = now
     workspaceRef.current = next
     setWorkspace(next)
-    void saveCachedWorkspace(next)
     const mutation = { id: createId('mutation'), at: now, type, entityId }
-    void enqueueMutation(mutation).then(async () => {
-      const pendingWrites = await countMutations()
-      setSyncMeta((meta) => ({ ...meta, dirty: true, pendingWrites }))
-    })
-  }, [])
+    autosave.queue(next, mutation, debounce)
+    setSyncMeta((meta) => ({ ...meta, dirty: true }))
+  }, [autosave])
 
   const syncNow = useCallback(async (override?: ConnectionConfig): Promise<boolean> => {
+    if (syncingRef.current) return false
+    try { await flushLocalSaves() }
+    catch {
+      setSyncMeta((meta) => ({ ...meta, lastError: 'Could not save changes on this device. Keep this tab open and try Sync now again.' }))
+      return false
+    }
     if (syncingRef.current) return false
     const config = override ?? connectionRef.current
     if (!isConfigured(config)) {
@@ -138,6 +151,7 @@ export function useForgeboard() {
       let attempt = 0
       while (attempt < 3) {
         attempt += 1
+        await flushLocalSaves()
         const [{ workspace: remote, sha }, base, acknowledgedIds] = await Promise.all([
           fetchWorkspace(config),
           loadBaseWorkspace(),
@@ -160,7 +174,7 @@ export function useForgeboard() {
         const displayed = changedDuringWrite ? mergeWorkspaces(local, workspaceRef.current, merged) : merged
         workspaceRef.current = displayed
         setWorkspace(displayed)
-        await Promise.all([saveCachedWorkspace(displayed), saveBaseWorkspace(merged), saveSha(finalSha)])
+        await Promise.all([autosave.checkpoint(displayed), saveBaseWorkspace(merged), saveSha(finalSha)])
         await clearMutations(acknowledgedIds)
         const remaining = await countMutations()
         setInboxStatus(inboxError ? `Inbox: ${inboxError}` : importResult.errors.length ? `Inbox needs attention: ${importResult.errors.join(' · ')}` : importResult.added || importResult.updates ? `Imported ${importResult.added} checklists and ${importResult.updates} chat updates.` : 'Inbox checked. No new submissions.')
@@ -176,7 +190,19 @@ export function useForgeboard() {
     } finally {
       syncingRef.current = false
     }
-  }, [])
+  }, [autosave, flushLocalSaves])
+
+  useEffect(() => {
+    const flush = () => { void flushLocalSaves().catch(() => { /* The visible save error keeps the draft recoverable for retry. */ }) }
+    const hidden = () => { if (document.visibilityState !== 'visible') flush() }
+    window.addEventListener('pagehide', flush)
+    document.addEventListener('visibilitychange', hidden)
+    return () => {
+      window.removeEventListener('pagehide', flush)
+      document.removeEventListener('visibilitychange', hidden)
+      flush()
+    }
+  }, [flushLocalSaves])
 
   useEffect(() => {
     if (!ready) return
@@ -507,7 +533,8 @@ export function useForgeboard() {
   }, [commit])
 
   const updatePersonalNote = useCallback((id: string, input: PersonalNoteUpdate): void => {
-    commit('personal-note.update', id, (draft, now) => { editPersonalNote(draft, id, input, now) })
+    const typing = ('title' in input || 'body' in input) && Object.keys(input).every((key) => ['title', 'body', 'parentId'].includes(key))
+    commit('personal-note.update', id, (draft, now) => { editPersonalNote(draft, id, input, now) }, typing)
   }, [commit])
 
   const deletePersonalNote = useCallback((id: string): void => {
@@ -535,7 +562,7 @@ export function useForgeboard() {
   }, [commit])
 
   const updateNoteChecklistItem = useCallback((noteId: string, itemId: string, input: { text: string }): void => {
-    commit('personal-note.checklist.update', noteId, (draft, now) => { editChecklistItem(draft, noteId, itemId, input, now) })
+    commit('personal-note.checklist.update', noteId, (draft, now) => { editChecklistItem(draft, noteId, itemId, input, now) }, true)
   }, [commit])
 
   const toggleNoteChecklistItem = useCallback((noteId: string, itemId: string): void => {
@@ -560,9 +587,11 @@ export function useForgeboard() {
     ready,
     inboxStatus,
     syncMeta,
+    localSave,
     configured: isConfigured(connection),
     actions: {
       syncNow,
+      flushLocalSaves,
       updateConnection,
       disconnect,
       addProject,

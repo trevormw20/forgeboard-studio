@@ -5,8 +5,8 @@ import App from './App'
 
 vi.mock('./lib/db', () => ({
   loadCachedWorkspace: async () => undefined, loadConnection: async () => undefined, loadBaseWorkspace: async () => undefined,
-  countMutations: async () => 0, mutationIds: async () => [], enqueueMutation: async () => {}, clearMutations: async () => {},
-  saveCachedWorkspace: async () => {}, saveConnection: async () => {}, saveBaseWorkspace: async () => {}, saveSha: async () => {}, clearConnection: async () => {},
+  countMutations: async () => 0, mutationIds: async () => [], saveWorkspaceChanges: async () => {}, clearMutations: async () => {},
+  saveConnection: async () => {}, saveBaseWorkspace: async () => {}, saveSha: async () => {}, clearConnection: async () => {},
 }))
 beforeEach(() => { vi.stubGlobal('scrollTo', vi.fn()) })
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })

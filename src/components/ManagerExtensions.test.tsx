@@ -7,7 +7,7 @@ import { ExperimentPanel } from './ExperimentPanel'
 
 vi.mock('../lib/db', () => ({
   loadCachedWorkspace: async () => undefined, loadConnection: async () => undefined,
-  countMutations: async () => 0, enqueueMutation: async () => {}, saveCachedWorkspace: async () => {},
+  countMutations: async () => 0, saveWorkspaceChanges: async () => {},
 }))
 afterEach(cleanup)
 function Harness({ panel }: { panel: 'progress' | 'experiment' }) {

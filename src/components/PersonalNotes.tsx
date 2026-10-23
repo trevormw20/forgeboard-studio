@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from 'react'
+import { useEffect, useState, type CSSProperties } from 'react'
 import { ArrowLeft, Check, ChevronRight, FolderPlus, Layers3, NotebookPen, Palette, Pin, Plus, Search, Tag, Trash2, Undo2, X } from 'lucide-react'
 import type { useForgeboard } from '../hooks/useForgeboard'
 import type { PersonalNote } from '../types'
@@ -60,6 +60,9 @@ export function PersonalNotes({ forge, onAddProject, initialProjectId, onProject
   const [labelColor, setLabelColor] = useState('#b59be8')
   const [error, setError] = useState('')
   const [lastDeleted, setLastDeleted] = useState<{ id: string; title: string }>()
+  const { flushLocalSaves } = forge.actions
+  useEffect(() => () => { void flushLocalSaves().catch(() => { /* The draft stays queued for retry. */ }) }, [flushLocalSaves])
+  function flushNote() { void flushLocalSaves().catch(() => { /* Save errors are shown below the editor. */ }) }
   const projects = forge.workspace.projects.filter((project) => !project.deletedAt)
   const project = projects.find((item) => item.id === scope)
   // A removed project must not make an otherwise recoverable notebook invisible.
@@ -91,7 +94,7 @@ export function PersonalNotes({ forge, onAddProject, initialProjectId, onProject
   }).sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || Date.parse(b.updatedAt) - Date.parse(a.updatedAt) || a.id.localeCompare(b.id))
   const pinned = shown.filter((note) => note.pinned)
   const others = shown.filter((note) => !note.pinned)
-  const cloudState = !forge.configured ? 'Saved on this device · Connect GitHub to sync' : !forge.syncMeta.online ? 'Saved on this device · Offline, sync queued' : forge.syncMeta.lastError ? 'Saved on this device · Sync needs attention' : forge.syncMeta.syncing ? 'Saved on this device · Syncing to GitHub…' : forge.syncMeta.dirty ? 'Saved on this device · Waiting to sync' : forge.syncMeta.lastSyncedAt ? 'Synced with your private GitHub vault' : 'Edits save automatically on this device'
+  const cloudState = forge.localSave.error ? 'Not saved yet · Keep this tab open and retry' : forge.localSave.pending || forge.localSave.saving ? 'Saving automatically…' : !forge.configured ? 'Saved on this device · Connect GitHub to sync' : !forge.syncMeta.online ? 'Saved on this device · Offline, sync queued' : forge.syncMeta.lastError ? 'Saved on this device · Sync needs attention' : forge.syncMeta.syncing ? 'Saved on this device · Syncing to GitHub…' : forge.syncMeta.dirty ? 'Saved on this device · Waiting to sync' : forge.syncMeta.lastSyncedAt ? 'Synced with your private GitHub vault' : 'Edits save automatically on this device'
 
   function attempt(action: () => void) {
     try { action(); setError('') }
@@ -99,6 +102,7 @@ export function PersonalNotes({ forge, onAddProject, initialProjectId, onProject
   }
 
   function changeScope(id: string) {
+    flushNote()
     setScope(id)
     setSelectedId(undefined)
     setQuery('')
@@ -111,6 +115,7 @@ export function PersonalNotes({ forge, onAddProject, initialProjectId, onProject
   }
 
   function openNote(id?: string) {
+    flushNote()
     setSelectedId(id)
     setQuery('')
     setLabelFilter('')
@@ -182,7 +187,7 @@ export function PersonalNotes({ forge, onAddProject, initialProjectId, onProject
     </section>
 
     <div className="pn-toolbar">
-      <div className="pn-search"><Search size={17} /><input aria-label={`Search ${scopeName}`} type="search" placeholder={`Search ${scopeName.toLocaleLowerCase()}…`} value={query} onChange={(event) => setQuery(event.target.value)} />{query && <button className="pn-icon" aria-label="Clear note search" onClick={() => setQuery('')}><X size={15} /></button>}</div>
+      <div className="pn-search"><Search size={17} /><input aria-label={`Search ${scopeName}`} type="search" placeholder={`Search ${scopeName.toLocaleLowerCase()}…`} value={query} onChange={(event) => { flushNote(); setQuery(event.target.value) }} />{query && <button className="pn-icon" aria-label="Clear note search" onClick={() => setQuery('')}><X size={15} /></button>}</div>
       <button className="pn-new-button" onClick={() => addNote(selected?.id)}><Plus size={17} />{selected ? 'Add sub-note' : 'New note'}</button>
     </div>
 
@@ -194,16 +199,18 @@ export function PersonalNotes({ forge, onAddProject, initialProjectId, onProject
 
     {lastDeleted && <div className="pn-undo" role="status"><span>“{lastDeleted.title}” and its sub-notes moved to trash.</span><button onClick={() => attempt(() => { forge.actions.restorePersonalNote(lastDeleted.id); setLastDeleted(undefined) })}><Undo2 size={15} />Undo delete</button><button className="pn-icon" aria-label="Dismiss delete notice" onClick={() => setLastDeleted(undefined)}><X size={14} /></button></div>}
     {error && <p className="pn-error" role="alert">{error}</p>}
+    {forge.localSave.error && <p className="pn-error" role="alert">Your latest edits are still open here, but could not be saved on this device. Keep this tab open.<button className="pn-text-button" onClick={flushNote}>Retry save</button></p>}
 
     {selected && !searching && <>
       <nav className="pn-breadcrumbs" aria-label="Note location"><button onClick={() => openNote()}>{scopeName}</button>{breadcrumbs.map((note, index) => <span key={note.id}><ChevronRight size={13} />{index === breadcrumbs.length - 1 ? <span aria-current="page">{noteTitle(note)}</span> : <button onClick={() => openNote(note.id)}>{noteTitle(note)}</button>}</span>)}</nav>
-      <section className="pn-editor" aria-label="Note editor" style={noteStyle(selected.color)}>
-        <div className="pn-editor-top"><button className="pn-text-button" onClick={() => openNote(parentOf(selected, notes)?.id)}><ArrowLeft size={16} />{parentOf(selected, notes) ? 'Back to parent' : 'All notes'}</button><div><button className={`pn-icon ${selected.pinned ? 'is-pinned' : ''}`} aria-label={selected.pinned ? 'Unpin current note' : 'Pin current note'} aria-pressed={Boolean(selected.pinned)} onClick={() => updateNote({ pinned: !selected.pinned })}><Pin size={16} /></button><button className="pn-icon" aria-label="Delete current note and sub-notes" onClick={() => removeNote(selected)}><Trash2 size={16} /></button><button className="pn-small-button" onClick={() => openNote(parentOf(selected, notes)?.id)}><Check size={15} />Done</button></div></div>
+      <section className="pn-editor" aria-label="Note editor" style={noteStyle(selected.color)} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) flushNote() }}>
+        <div className="pn-editor-top"><button className="pn-text-button" onClick={() => openNote(parentOf(selected, notes)?.id)}><ArrowLeft size={16} />{parentOf(selected, notes) ? 'Back to parent' : 'All notes'}</button><div><button className={`pn-icon ${selected.pinned ? 'is-pinned' : ''}`} aria-label={selected.pinned ? 'Unpin current note' : 'Pin current note'} aria-pressed={Boolean(selected.pinned)} onClick={() => updateNote({ pinned: !selected.pinned })}><Pin size={16} /></button><button className="pn-icon" aria-label="Delete current note and sub-notes" onClick={() => removeNote(selected)}><Trash2 size={16} /></button><button className="pn-small-button" aria-label="Close note" onClick={() => openNote(parentOf(selected, notes)?.id)}><X size={15} />Close</button></div></div>
         <label className="pn-title-label"><span className="sr-only">Note title</span><input autoFocus key={selected.id} aria-label="Note title" placeholder="Untitled note" value={selected.title} maxLength={300} onChange={(event) => updateNote({ title: event.target.value })} /></label>
         <label className="pn-body-label"><span className="sr-only">Note text</span><textarea className={selected.checklist?.length ? 'pn-body-with-checklist' : ''} aria-label="Note text" placeholder="Add a note, or start a checklist below…" value={selected.body} rows={selected.checklist?.length ? 2 : 3} maxLength={100000} onChange={(event) => updateNote({ body: event.target.value })} /></label>
         <NoteChecklist key={selected.id} forge={forge} note={selected} />
         <div className="pn-editor-options"><fieldset className="pn-colors"><legend><Palette size={14} />Note color</legend><div>{COLORS.map((color) => <button key={color.name} type="button" title={color.name} aria-label={`${color.name} note color`} aria-pressed={selected.color === color.color} style={{ backgroundColor: color.color }} onClick={() => updateNote({ color: color.color })}>{selected.color === color.color && <Check size={15} />}</button>)}<label className="pn-color-picker" title="Custom note color"><Palette size={15} /><span className="sr-only">Custom note color</span><input aria-label="Custom note color" type="color" value={selected.color ?? '#8094ad'} onChange={(event) => updateNote({ color: event.target.value })} /></label></div></fieldset><div className="pn-note-labels"><span><Tag size={14} />Labels</span><div>{labels.map((label) => <label className={`pn-label-check ${selected.labelIds?.includes(label.id) ? 'active' : ''}`} key={label.id} style={noteStyle(label.color)}><input type="checkbox" checked={Boolean(selected.labelIds?.includes(label.id))} onChange={(event) => updateNote({ labelIds: event.target.checked ? [...(selected.labelIds ?? []), label.id] : selected.labelIds?.filter((id) => id !== label.id) })} />{label.name}</label>)}<button className="pn-text-button" onClick={() => setShowLabels(true)}><Plus size={13} />{labels.length ? 'Manage' : 'Create a label'}</button></div></div></div>
         <p className="pn-save-state" role="status"><Check size={12} />{cloudState}</p>
+        <p className="pn-autosave-hint">Note text autosaves after a second of no typing, and when you leave. No save button needed.</p>
       </section>
     </>}
 

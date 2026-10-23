@@ -82,6 +82,8 @@
 .pn-label-check.active { border-color: var(--note-color); background: color-mix(in srgb, var(--note-color) 13%, #131d2d); color: #f0f2fa; }
 .pn-label-check input { margin: 0; accent-color: var(--note-color); width: 13px; height: 13px; }
 .pn-save-state { display: flex; align-items: center; gap: 5px; color: #98b8ae; font-size: 10px; line-height: 1.6; margin: 16px 0 0; }
+.pn-autosave-hint { color: var(--pn-muted); font-size: 11px; line-height: 1.7; margin: 5px 0 0; }
+.pn-error > .pn-text-button { margin-left: 10px; color: #ffe3e8; }
 .pn-grid-heading { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin: 20px 0 15px; }
 .pn-grid-heading h3 { margin: 0; color: #dce2ed; font-size: 12px; font-weight: 700; }
 .pn-grid-heading > span { color: #8394ae; font-size: 10px; text-align: right; }

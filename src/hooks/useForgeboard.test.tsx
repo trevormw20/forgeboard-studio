@@ -10,9 +10,9 @@ const memory = vi.hoisted(() => ({ mutations: new Map<string, unknown>() }))
 vi.mock('../lib/db', () => ({
   loadCachedWorkspace: async () => undefined, loadConnection: async () => undefined, loadBaseWorkspace: async () => undefined,
   countMutations: async () => memory.mutations.size, mutationIds: async () => [...memory.mutations.keys()],
-  enqueueMutation: async (record: { id: string }) => { memory.mutations.set(record.id, record) },
+  saveWorkspaceChanges: async (_workspace: unknown, records: { id: string }[]) => { records.forEach((record) => memory.mutations.set(record.id, record)) },
   clearMutations: async (ids: string[]) => { ids.forEach((id) => memory.mutations.delete(id)) },
-  saveCachedWorkspace: async () => {}, saveConnection: async () => {}, saveBaseWorkspace: async () => {}, saveSha: async () => {}, clearConnection: async () => {},
+  saveConnection: async () => {}, saveBaseWorkspace: async () => {}, saveSha: async () => {}, clearConnection: async () => {},
 }))
 vi.mock('../lib/github', async (original) => ({ ...await original<object>(), fetchWorkspace: vi.fn(), putWorkspace: vi.fn(), fetchTaskInbox: async () => [] }))
 const config = { owner: 'test', repo: 'vault', branch: 'main', path: 'data/workspace.json', token: 'test-token', rememberToken: false }

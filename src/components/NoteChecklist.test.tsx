@@ -11,8 +11,7 @@ vi.mock('../lib/db', () => ({
   loadCachedWorkspace: async () => cached,
   loadConnection: async () => undefined,
   countMutations: async () => 0,
-  enqueueMutation: async () => {},
-  saveCachedWorkspace: async () => {},
+  saveWorkspaceChanges: async () => {},
 }))
 
 beforeEach(() => { vi.stubGlobal('PointerEvent', MouseEvent) })

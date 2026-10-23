@@ -29,6 +29,16 @@ export async function saveCachedWorkspace(workspace: Workspace): Promise<void> {
   await (await dbPromise).put('state', workspace, 'workspace')
 }
 
+// The recoverable workspace and its sync queue must reach disk together.
+export async function saveWorkspaceChanges(workspace: Workspace, mutations: MutationRecord[]): Promise<void> {
+  const transaction = (await dbPromise).transaction(['state', 'outbox'], 'readwrite')
+  await Promise.all([
+    transaction.objectStore('state').put(workspace, 'workspace'),
+    ...mutations.map((mutation) => transaction.objectStore('outbox').put(mutation)),
+    transaction.done,
+  ])
+}
+
 export async function loadBaseWorkspace(): Promise<Workspace | undefined> {
   return (await (await dbPromise).get('state', 'baseWorkspace')) as Workspace | undefined
 }

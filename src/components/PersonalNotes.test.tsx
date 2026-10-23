@@ -18,8 +18,7 @@ vi.mock('../lib/db', () => ({
   loadCachedWorkspace: async () => cached,
   loadConnection: async () => undefined,
   countMutations: async () => 0,
-  enqueueMutation: async () => {},
-  saveCachedWorkspace: async () => {},
+  saveWorkspaceChanges: async () => {},
 }))
 
 afterEach(() => { cleanup(); cached = undefined })
@@ -74,7 +73,7 @@ describe('Personal notes', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add project notes' }))
     expect(screen.getByRole('option', { name: 'New venture' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'New venture' })).toBeTruthy()
-    expect(screen.getAllByText(/Connect GitHub to sync/).length).toBeGreaterThan(0)
+    await waitFor(() => expect(screen.getAllByText(/Connect GitHub to sync/).length).toBeGreaterThan(0))
   })
 
   it('creates nested sub-notes at multiple levels with breadcrumbs and durable edits', async () => {
@@ -89,7 +88,7 @@ describe('Personal notes', () => {
     expect(breadcrumbs.getByRole('button', { name: 'Launch plan' })).toBeTruthy()
     expect(breadcrumbs.getByRole('button', { name: 'Audience' })).toBeTruthy()
     expect(breadcrumbs.getByText('Reader feedback')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Done' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Close note' }))
     expect((screen.getByLabelText('Note title') as HTMLInputElement).value).toBe('Audience')
     expect(screen.getByRole('button', { name: 'Open note: Reader feedback' })).toBeTruthy()
     fireEvent.click(breadcrumbs.getByRole('button', { name: 'Launch plan' }))
@@ -114,7 +113,7 @@ describe('Personal notes', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: 'Launch' }))
     fireEvent.change(screen.getByLabelText('Custom note color'), { target: { value: '#6789ab' } })
     fireEvent.click(screen.getByRole('button', { name: 'Pin current note' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Done' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Close note' }))
     expect(screen.getByText('Pinned')).toBeTruthy()
     expect(screen.getByText('<script>not executable</script>')).toBeTruthy()
     expect(document.querySelector('script')).toBeNull()
