@@ -79,6 +79,7 @@ export function useForgeboard() {
   const connectionRef = useRef(connection)
   const syncingRef = useRef(false)
   const revisionRef = useRef(0)
+  const syncBackoffRef = useRef(0)
   const [autosave] = useState(() => createWorkspaceAutosave({
     persist: async (snapshot, mutations) => {
       await saveWorkspaceChanges(snapshot, mutations)
@@ -132,6 +133,10 @@ export function useForgeboard() {
     }
     if (syncingRef.current) return false
     const config = override ?? connectionRef.current
+    if (Date.now() < syncBackoffRef.current) {
+      setSyncMeta((meta) => ({ ...meta, lastError: 'GitHub asked us to pause requests. Your edits are saved locally; syncing will retry after the pause.' }))
+      return false
+    }
     if (!isConfigured(config)) {
       setSyncMeta((meta) => ({ ...meta, lastError: 'Connect the private GitHub data repository before syncing.' }))
       return false
@@ -147,7 +152,10 @@ export function useForgeboard() {
       let inboxFiles: { path: string; text: string }[] = []
       let inboxError = ''
       try { inboxFiles = await fetchTaskInbox(config) }
-      catch (error) { inboxError = error instanceof Error ? error.message : 'Inbox could not be read.' }
+      catch (error) {
+        if (error instanceof GitHubSyncError && error.retryAt) throw error
+        inboxError = error instanceof Error ? error.message : 'Inbox could not be read.'
+      }
       let attempt = 0
       while (attempt < 3) {
         attempt += 1
@@ -184,6 +192,7 @@ export function useForgeboard() {
       }
       throw new Error('The workspace changed repeatedly. Try Sync now again.')
     } catch (error) {
+      if (error instanceof GitHubSyncError && error.retryAt) syncBackoffRef.current = error.retryAt
       const message = error instanceof Error ? error.message : 'Sync failed unexpectedly.'
       setSyncMeta((meta) => ({ ...meta, syncing: false, lastError: message }))
       return false
@@ -195,14 +204,25 @@ export function useForgeboard() {
   useEffect(() => {
     const flush = () => { void flushLocalSaves().catch(() => { /* The visible save error keeps the draft recoverable for retry. */ }) }
     const hidden = () => { if (document.visibilityState !== 'visible') flush() }
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      const state = autosave.getState()
+      if (!state.pending && !state.saving) return
+      flush()
+      // Async IndexedDB writes are not guaranteed to finish during navigation.
+      // Let the browser warn instead of silently discarding a still-open draft.
+      event.preventDefault()
+      event.returnValue = ''
+    }
     window.addEventListener('pagehide', flush)
+    window.addEventListener('beforeunload', beforeUnload)
     document.addEventListener('visibilitychange', hidden)
     return () => {
       window.removeEventListener('pagehide', flush)
+      window.removeEventListener('beforeunload', beforeUnload)
       document.removeEventListener('visibilitychange', hidden)
       flush()
     }
-  }, [flushLocalSaves])
+  }, [autosave, flushLocalSaves])
 
   useEffect(() => {
     if (!ready) return
@@ -215,7 +235,7 @@ export function useForgeboard() {
     document.addEventListener('visibilitychange', visible)
     window.addEventListener('online', online)
     window.addEventListener('offline', offline)
-    const timer = window.setInterval(() => { if (navigator.onLine && document.visibilityState === 'visible' && isConfigured(connectionRef.current)) void syncNow() }, 30_000)
+    const timer = window.setInterval(() => { if (navigator.onLine && document.visibilityState === 'visible' && isConfigured(connectionRef.current)) void syncNow() }, 15_000)
     if (isConfigured(connectionRef.current) && navigator.onLine) void syncNow()
     return () => {
       window.removeEventListener('online', online)
@@ -226,6 +246,7 @@ export function useForgeboard() {
   }, [ready, syncNow])
 
   const updateConnection = useCallback(async (next: ConnectionConfig): Promise<boolean> => {
+    syncBackoffRef.current = 0
     connectionRef.current = next
     setConnection(next)
     await saveConnection(next)
@@ -239,6 +260,16 @@ export function useForgeboard() {
     setConnection(next)
     setSyncMeta((meta) => ({ ...meta, lastError: undefined, lastSyncedAt: undefined }))
   }, [])
+
+  const markNotificationsRead = useCallback((ids: string[]) => {
+    const read = new Set((workspaceRef.current.notificationReads ?? []).map((receipt) => receipt.id))
+    const unread = [...new Set(ids)].filter((id) => id && !read.has(id))
+    if (!unread.length) return
+    commit('notification.read', undefined, (draft, now) => {
+      draft.notificationReads ??= []
+      draft.notificationReads.push(...unread.map((id) => ({ id, readAt: now })))
+    })
+  }, [commit])
 
   const addProject = useCallback((input: { name: string; color: string; icon: string; escalation?: typeof DEFAULT_ESCALATION }) => {
     const project = createProject(input.name.trim(), input.color, input.icon)
@@ -594,6 +625,7 @@ export function useForgeboard() {
       flushLocalSaves,
       updateConnection,
       disconnect,
+      markNotificationsRead,
       addProject,
       setProjectStage,
       setProjectWorkState,

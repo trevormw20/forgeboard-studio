@@ -3,6 +3,22 @@ import { createSeedWorkspace } from '../seed'
 import { mergeWorkspaces, sameWorkspaceContent } from './merge'
 
 describe('workspace conflict merge', () => {
+  it('unions cross-device notification reads without creating conflict copies or marking newer updates read', () => {
+    const base = createSeedWorkspace()
+    base.notificationReads = [{ id: 'old-handoff:received', readAt: '2026-10-25T12:00:00.000Z' }]
+    const local = structuredClone(base), remote = structuredClone(base)
+    local.notificationReads!.push({ id: 'desktop-update', readAt: '2026-10-26T12:00:00.000Z' })
+    remote.notificationReads!.push({ id: 'phone-update', readAt: '2026-10-26T13:00:00.000Z' })
+    remote.notificationReads![0].readAt = '2026-10-26T14:00:00.000Z'
+    const merged = mergeWorkspaces(base, local, remote)
+    expect(merged.notificationReads).toHaveLength(3)
+    expect(merged.notificationReads!.find((item) => item.id === 'old-handoff:received')?.readAt).toBe('2026-10-26T14:00:00.000Z')
+    expect(merged.notificationReads!.some((item) => item.id === 'old-handoff:summary:new-input')).toBe(false)
+    expect(merged.conflicts).toHaveLength(0)
+    const legacy = structuredClone(remote)
+    delete legacy.notificationReads
+    expect(mergeWorkspaces(base, merged, legacy).notificationReads).toEqual(merged.notificationReads)
+  })
   it('ignores no-op sync timestamps but detects real summary and checkbox changes', () => {
     const base = createSeedWorkspace(), remote = structuredClone(base)
     remote.updatedAt = '2030-01-01T00:00:00Z'

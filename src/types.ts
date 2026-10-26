@@ -313,6 +313,11 @@ export interface NoteLabel {
   deletedAt?: string
 }
 
+export interface NotificationRead {
+  id: string
+  readAt: string
+}
+
 export interface Workspace {
   schemaVersion: 1
   id: string
@@ -337,6 +342,7 @@ export interface Workspace {
   inboxAutomation?: InboxAutomation
   personalNotes?: PersonalNote[]
   noteLabels?: NoteLabel[]
+  notificationReads?: NotificationRead[]
 }
 
 export interface ConnectionConfig {

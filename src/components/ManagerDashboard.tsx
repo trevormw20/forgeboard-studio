@@ -16,7 +16,7 @@ const chatPrompt = `Use Forgeboard as my project manager. Read C:/Users/maker/Do
 
 async function copy(text: string) { await navigator.clipboard.writeText(text) }
 
-function ReviewPanel({ forge, task, onClose }: { forge: Forge; task: Task; onClose: () => void }) {
+export function ReviewPanel({ forge, task, onClose }: { forge: Forge; task: Task; onClose: () => void }) {
   const project = forge.workspace.projects.find((item) => item.id === task.projectId)
   const [notes, setNotes] = useState(task.reviewNotes ?? '')
   const [when, setWhen] = useState(toLocalInputValue(task.reviewAt))

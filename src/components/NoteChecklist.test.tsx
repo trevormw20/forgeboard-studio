@@ -28,13 +28,15 @@ async function start(items: NoteChecklistItem[] = [], failAdd = false) {
   cached = createSeedWorkspace()
   cached.personalNotes = [{ id: 'note', title: 'Daily notes', body: 'Keep the original writing.', checklist: items, createdAt: '2026-10-21T12:00:00Z', updatedAt: '2026-10-21T12:00:00Z' }]
   render(<Harness failAdd={failAdd} />)
-  await screen.findByLabelText('New checklist item')
+  await screen.findByRole('button', { name: /Add (first )?main item/ })
 }
 
 function saved(): NoteChecklistItem[] { return JSON.parse(screen.getByLabelText('Saved checklist').textContent ?? '[]') }
 function addText(text: string) {
-  fireEvent.change(screen.getByLabelText('New checklist item'), { target: { value: text } })
-  fireEvent.click(screen.getByRole('button', { name: 'Add checklist item' }))
+  fireEvent.click(screen.getByRole('button', { name: /Add (first )?main item/ }))
+  const input = screen.getByRole('textbox', { name: 'Edit New item' })
+  expect(document.activeElement).toBe(input)
+  fireEvent.change(input, { target: { value: text } })
 }
 function options(text: string) { fireEvent.click(screen.getByRole('button', { name: `Options for ${text}` })) }
 
@@ -146,12 +148,109 @@ describe('Note checklist', () => {
     await waitFor(() => expect(saved().every((item) => !item.deletedAt)).toBe(true))
   })
 
-  it('keeps the draft when adding fails, with a useful error instead of dropping text', async () => {
+  it('reports a failed one-click add before accepting text, without creating a ghost item', async () => {
     await start([], true)
-    addText('Important thought not to lose')
-    expect((screen.getByLabelText('New checklist item') as HTMLInputElement).value).toBe('Important thought not to lose')
+    fireEvent.click(screen.getByRole('button', { name: 'Add first main item' }))
+    expect(screen.queryByRole('textbox', { name: 'Edit New item' })).toBeNull()
     expect(screen.getByRole('alert').textContent).toBe('Could not add this item.')
     expect(saved()).toEqual([])
+  })
+
+  it('puts one Add item control after each entire root group and adds a direct child, not a deeper descendant', async () => {
+    await start()
+    addText('Walmart')
+    fireEvent.click(screen.getByRole('button', { name: 'Add item to Walmart' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Edit New item' }), { target: { value: 'Fish' } })
+    options('Fish')
+    fireEvent.click(screen.getByRole('button', { name: 'Add sub-item to Fish' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Edit New item' }), { target: { value: 'Salmon' } })
+    addText('Costco')
+    fireEvent.click(screen.getByRole('button', { name: 'Add item to Costco' }))
+    const turkeyInput = screen.getByRole('textbox', { name: 'Edit New item' })
+    expect(document.activeElement).toBe(turkeyInput)
+    fireEvent.change(turkeyInput, { target: { value: 'Turkey' } })
+
+    expect(screen.getAllByRole('listitem').map((item) => item.getAttribute('aria-label'))).toEqual(['Checklist item: Walmart', 'Checklist item: Fish', 'Checklist item: Salmon', 'Checklist item: Costco', 'Checklist item: Turkey'])
+    const walmartAdd = screen.getByRole('button', { name: 'Add item to Walmart' }).closest('li')!
+    const costcoAdd = screen.getByRole('button', { name: 'Add item to Costco' }).closest('li')!
+    expect(walmartAdd.previousElementSibling).toBe(screen.getByRole('listitem', { name: 'Checklist item: Salmon' }))
+    expect(walmartAdd.nextElementSibling).toBe(screen.getByRole('listitem', { name: 'Checklist item: Costco' }))
+    expect(costcoAdd.previousElementSibling).toBe(screen.getByRole('listitem', { name: 'Checklist item: Turkey' }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add item to Walmart' }))
+    const newInput = screen.getByRole('textbox', { name: 'Edit New item' })
+    expect(document.activeElement).toBe(newInput)
+    fireEvent.change(newInput, { target: { value: 'Milk' } })
+    const walmart = saved().find((item) => item.text === 'Walmart')!
+    const costco = saved().find((item) => item.text === 'Costco')!
+    expect(saved().find((item) => item.text === 'Milk')?.parentId).toBe(walmart.id)
+    expect(saved().find((item) => item.text === 'Turkey')?.parentId).toBe(costco.id)
+    expect(screen.getByRole('button', { name: 'Add item to Walmart' }).closest('li')?.previousElementSibling).toBe(screen.getByRole('listitem', { name: 'Checklist item: Milk' }))
+    expect(screen.getByRole('listitem', { name: 'Checklist item: Milk' }).getAttribute('aria-level')).toBe('2')
+  })
+
+  it('shows Add item even without children and keeps the separate main-item action at the bottom', async () => {
+    await start()
+    addText('Walmart')
+    const add = screen.getByRole('button', { name: 'Add item to Walmart' })
+    expect(add.closest('li')?.previousElementSibling).toBe(screen.getByRole('listitem', { name: 'Checklist item: Walmart' }))
+    fireEvent.click(add)
+    expect(screen.getByRole('listitem', { name: 'Checklist item: New item' }).getAttribute('aria-level')).toBe('2')
+    expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'Edit New item' }))
+    fireEvent.change(document.activeElement!, { target: { value: 'Fish' } })
+    addText('Costco')
+    expect(saved().find((item) => item.text === 'Costco')?.parentId).toBeUndefined()
+    expect(screen.getByRole('list', { name: 'Checklist items' }).nextElementSibling).toBe(screen.getByRole('button', { name: 'Add main item' }))
+  })
+
+  it('reopens collapsed and completed groups for editing and expands when adding a child', async () => {
+    await start()
+    addText('Walmart')
+    fireEvent.click(screen.getByRole('button', { name: 'Add item to Walmart' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Edit New item' }), { target: { value: 'Fish' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Walmart' }))
+    expect((screen.getByRole('checkbox', { name: 'Fish' }) as HTMLInputElement).checked).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse Walmart list' }))
+    expect(screen.queryByRole('textbox', { name: 'Edit Fish' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Expand Walmart list' }).getAttribute('aria-expanded')).toBe('false')
+    fireEvent.click(screen.getByRole('button', { name: 'Expand Walmart list' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Edit Fish' }), { target: { value: 'Salmon' } })
+    expect(saved().find((item) => item.text === 'Salmon')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse Walmart list' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add item to Walmart' }))
+    expect(screen.getByRole('textbox', { name: 'Edit Salmon' })).toBeTruthy()
+    const input = screen.getByRole('textbox', { name: 'Edit New item' })
+    expect(document.activeElement).toBe(input)
+    expect(screen.getByRole('button', { name: 'Collapse Walmart list' }).getAttribute('aria-expanded')).toBe('true')
+    fireEvent.change(input, { target: { value: 'Milk' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Walmart' }))
+    expect(saved().find((item) => item.text === 'Walmart')?.completedAt).toBeUndefined()
+    expect(saved().find((item) => item.text === 'Milk')?.parentId).toBe(saved().find((item) => item.text === 'Walmart')?.id)
+  })
+
+  it.each(['keyboard', 'button', 'slide'])('expands a collapsed destination when nesting by %s so the moved row stays editable', async (method) => {
+    await start()
+    addText('Walmart')
+    addText('Costco')
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse Walmart list' }))
+    const input = screen.getByRole('textbox', { name: 'Edit Costco' })
+    input.focus()
+    if (method === 'keyboard') fireEvent.keyDown(input, { key: 'Tab' })
+    else if (method === 'button') {
+      options('Costco')
+      fireEvent.click(screen.getByRole('button', { name: 'Indent Costco' }))
+    } else {
+      const grip = screen.getByRole('button', { name: 'Move Costco' })
+      fireEvent.pointerDown(grip, { clientX: 70, clientY: 50, pointerId: 1, button: 0 })
+      fireEvent.pointerMove(grip, { clientX: 115, clientY: 52, pointerId: 1 })
+      fireEvent.pointerUp(grip, { clientX: 115, clientY: 52, pointerId: 1 })
+    }
+    expect(screen.getByRole('textbox', { name: 'Edit Costco' })).toBe(input)
+    if (method === 'keyboard') expect(document.activeElement).toBe(input)
+    expect(screen.getByRole('button', { name: 'Collapse Walmart list' }).getAttribute('aria-expanded')).toBe('true')
+    expect(saved().find((item) => item.text === 'Costco')?.parentId).toBe(saved().find((item) => item.text === 'Walmart')?.id)
+    fireEvent.change(input, { target: { value: 'More groceries' } })
+    expect(saved().find((item) => item.text === 'More groceries')).toBeTruthy()
   })
 
   it('lists every disconnected cyclic deleted group so none become hidden', async () => {

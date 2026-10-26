@@ -1,12 +1,15 @@
-import { useEffect, useMemo, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react'
 import {
-  AlertTriangle, Bot, Bug, Check, ChevronDown, ChevronRight, Clock3, FileText, Flag,
+  AlertTriangle, Bell, Bot, Bug, Check, ChevronDown, ChevronRight, Clock3, FileText, Flag,
   FolderKanban, Image, Inbox, Keyboard, LayoutDashboard, Lightbulb, ListTodo, Menu,
   MessageSquareText, NotebookPen, Palette, Plus, RefreshCw, Repeat2, Search, Settings, Sparkles, Wifi, WifiOff, X,
 } from 'lucide-react'
 import { useForgeboard } from './hooks/useForgeboard'
-import { ManagerDashboard, type ManagerSection } from './components/ManagerDashboard'
+import { ManagerDashboard, ReviewPanel, type ManagerSection } from './components/ManagerDashboard'
 import { PersonalNotes } from './components/PersonalNotes'
+import { ActivityToastStack, NotificationCenter } from './components/NotificationCenter'
+import { deriveActivityNotifications, type ActivityNotification } from './lib/notifications'
+import { useActivityToasts } from './hooks/useActivityToasts'
 import './components/manager.css'
 import { fromLocalInputValue, toLocalInputValue } from './lib/ids'
 import { daysUntil, effectivePriority, priorityRank } from './lib/priority'
@@ -14,7 +17,7 @@ import { boardLabel, practicalTip } from './lib/routing'
 import { BOARD_DEFINITIONS, type BoardKey, type ConnectionConfig, type Project, type StartingPriority, type Task, type TaskColor } from './types'
 import './App.css'
 
-type View = { type: 'overview' } | { type: 'project'; projectId: string } | { type: 'reports' } | { type: 'notes'; projectId?: string }
+type View = { type: 'overview' } | { type: 'project'; projectId: string } | { type: 'reports' } | { type: 'notes'; projectId?: string } | { type: 'notifications' }
 type ModalName = 'capture' | 'project' | 'task' | 'deadline' | 'settings' | 'shortcuts' | 'reschedule' | null
 
 const boardIcons: Record<BoardKey, typeof Bug> = { bugs: Bug, aiTodo: Bot, myTodo: ListTodo, ideas: Lightbulb, playtest: MessageSquareText, assets: Image }
@@ -126,7 +129,7 @@ function GlobalView({ forge, onProject, onTask, onDeadline, onReschedule }: { fo
     <ManagerDashboard forge={forge} section={tab} />
     {tab === 'tasks' && <section className="section-block full-task-list"><div className="section-title"><div><p className="eyebrow">Across every project</p><h2>Priority list</h2></div><span className="item-count">{filteredTasks.length} open</span></div><div className="task-filter-bar"><label className="task-search"><Search size={16} /><input aria-label="Search tasks" placeholder="Find a task or project…" value={taskSearch} onChange={(event) => setTaskSearch(event.target.value)} /></label><label><span className="sr-only">Filter tasks by project</span><select aria-label="Filter tasks by project" value={taskProject} onChange={(event) => setTaskProject(event.target.value)}><option value="">All projects</option>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label></div><div className="task-list global-task-list">{filteredTasks.length ? filteredTasks.map((task) => <TaskRow key={task.id} task={task} project={projectMap.get(task.projectId)} showProject onToggle={() => forge.actions.toggleTask(task.id)} onReschedule={() => onReschedule(task)} onAddSubtask={(title) => forge.actions.addSubtask(task.id, title)} onToggleSubtask={(subtaskId) => forge.actions.toggleSubtask(task.id, subtaskId)} onColorChange={(color) => forge.actions.setTaskColor(task.id, color)} />) : <EmptyState icon={<Check />} title={openTasks.length ? 'No matching tasks' : 'The list is clear'} copy={openTasks.length ? 'Try another project or search term.' : 'Nothing open across your projects.'} />}</div></section>}
     {tab === 'progress' && <section className="section-block"><div className="section-title"><div><p className="eyebrow">Portfolio</p><h2>Open a project</h2></div></div><div className="project-grid">{projects.map((project) => { const tasks = workspace.tasks.filter((task) => task.projectId === project.id && !task.completedAt && !task.deletedAt); const top = [...tasks].sort((a, b) => priorityRank(effectivePriority(b, project)) - priorityRank(effectivePriority(a, project)))[0]; return <button type="button" className="project-card" key={project.id} onClick={() => onProject(project.id)} style={{ '--project-color': project.color } as CSSProperties}><span className="project-icon">{project.icon}</span><div><h3>{project.name}</h3><p>{stages.find(([value]) => value === project.stage)?.[1]}</p></div><strong>{tasks.length}</strong><span>open</span>{top && <small>Next: {top.title}</small>}</button> })}</div></section>}
-    {tab === 'handoffs' && <section className="inbox-status" aria-live="polite"><Inbox size={18} /><div><strong>Inbox delivery</strong><p>{forge.inboxStatus}</p><small>Checked on launch, when you return, and every 30 seconds while open. Each task file keeps its own original checklist.</small></div></section>}
+    {tab === 'handoffs' && <section className="inbox-status" aria-live="polite"><Inbox size={18} /><div><strong>Inbox delivery</strong><p>{forge.inboxStatus}</p><small>Checked on launch, when you return, and every 15 seconds while visible. Each task file keeps its own original checklist.</small></div></section>}
     </div>
   </div>
 }
@@ -194,19 +197,136 @@ function RescheduleModal({ forge, task, onClose }: { forge: ReturnType<typeof us
 function ShortcutsModal({ onClose }: { onClose: () => void }) { return <Modal title="Keyboard shortcuts" description="Shortcuts are disabled while you are typing in a field." onClose={onClose}><div className="shortcut-list"><span><kbd>Q</kbd>Quick capture</span><span><kbd>N</kbd>New task</span><span><kbd>G</kbd>Today</span><span><kbd>P</kbd>Personal notes</span><span><kbd>S</kbd>Sync now</span><span><kbd>?</kbd>Show shortcuts</span><span><kbd>Esc</kbd>Close dialog</span></div></Modal> }
 
 function App() {
-  const forge = useForgeboard(); const [view, setView] = useState<View>({ type: 'overview' }); const [modal, setModal] = useState<ModalName>(null); const [taskBoard, setTaskBoard] = useState<BoardKey | undefined>(); const [rescheduleTask, setRescheduleTask] = useState<Task | undefined>(); const [toast, setToast] = useState(''); const [mobileNav, setMobileNav] = useState(false); const [, setClockTick] = useState(0)
-  const activeProjectId = view.type === 'project' || view.type === 'notes' ? view.projectId : undefined; const activeProject = useMemo(() => activeProjectId ? forge.workspace.projects.find((project) => project.id === activeProjectId) : undefined, [activeProjectId, forge.workspace.projects])
-  useEffect(() => { const openSettings = () => setModal('settings'); window.addEventListener('forgeboard:settings', openSettings); return () => window.removeEventListener('forgeboard:settings', openSettings) }, [])
-  useEffect(() => { const handler = (event: KeyboardEvent) => { const target = event.target as HTMLElement; if (event.ctrlKey || event.metaKey || event.altKey || modal || document.querySelector('[role="dialog"]') || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable) return; if (event.key.toLowerCase() === 'q') { event.preventDefault(); setModal('capture') } if (event.key.toLowerCase() === 'n') { event.preventDefault(); setTaskBoard(undefined); setModal('task') } if (event.key.toLowerCase() === 'g') { event.preventDefault(); setView({ type: 'overview' }) } if (event.key.toLowerCase() === 'p') { event.preventDefault(); setView({ type: 'notes' }) } if (event.key.toLowerCase() === 's') { event.preventDefault(); void forge.actions.syncNow() } if (event.key === '?') { event.preventDefault(); setModal('shortcuts') } }; window.addEventListener('keydown', handler); return () => window.removeEventListener('keydown', handler) }, [forge.actions, modal])
-  useEffect(() => { if (!toast) return; const timer = window.setTimeout(() => setToast(''), 3000); return () => window.clearTimeout(timer) }, [toast])
-  useEffect(() => { const timer = window.setInterval(() => setClockTick((value) => value + 1), 60_000); return () => window.clearInterval(timer) }, [])
-  const openTaskModal = (board?: BoardKey) => { setTaskBoard(board); setModal('task') }; const openReschedule = (task: Task) => { setRescheduleTask(task); setModal('reschedule') }; const navigate = (next: View) => { setView(next); setMobileNav(false); window.scrollTo({ top: 0, behavior: 'smooth' }) }
+  const forge = useForgeboard()
+  const [view, setView] = useState<View>({ type: 'overview' })
+  const [modal, setModal] = useState<ModalName>(null)
+  const [taskBoard, setTaskBoard] = useState<BoardKey | undefined>()
+  const [rescheduleTask, setRescheduleTask] = useState<Task | undefined>()
+  const [notificationTaskId, setNotificationTaskId] = useState<string>()
+  const [notesQuery, setNotesQuery] = useState('')
+  const [toast, setToast] = useState('')
+  const [mobileNav, setMobileNav] = useState(false)
+  const [, setClockTick] = useState(0)
+  const activeProjectId = view.type === 'project' || view.type === 'notes' ? view.projectId : undefined
+  const activeProject = useMemo(() => activeProjectId ? forge.workspace.projects.find((project) => project.id === activeProjectId) : undefined, [activeProjectId, forge.workspace.projects])
+  const updates = useMemo(() => deriveActivityNotifications(forge.workspace), [forge.workspace])
+  const readIds = useMemo(() => new Set((forge.workspace.notificationReads ?? []).map((receipt) => receipt.id)), [forge.workspace.notificationReads])
+  const unreadIds = useMemo(() => new Set(updates.filter((item) => !readIds.has(item.id)).map((item) => item.id)), [updates, readIds])
+  const notificationsReady = forge.ready && (!forge.configured || Boolean(forge.syncMeta.lastSyncedAt) || Boolean(forge.syncMeta.lastError) || !forge.syncMeta.online)
+  const { toasts, dismissToast, dismissAllToasts } = useActivityToasts({ items: updates, ready: notificationsReady, workspaceId: forge.workspace.id })
+  const notificationTask = forge.workspace.tasks.find((task) => task.id === notificationTaskId && !task.deletedAt)
+  const { markNotificationsRead } = forge.actions
+  const checkedNotificationVisit = useRef(false)
+
+  // Opening the feed checks the current snapshot, never unseen future arrivals.
+  useEffect(() => {
+    if (view.type !== 'notifications') { checkedNotificationVisit.current = false; return }
+    if (!notificationsReady || checkedNotificationVisit.current || document.visibilityState === 'hidden') return
+    checkedNotificationVisit.current = true
+    if (unreadIds.size) markNotificationsRead([...unreadIds])
+    dismissAllToasts()
+  }, [view.type, notificationsReady, unreadIds, markNotificationsRead, dismissAllToasts])
+  useEffect(() => {
+    const openSettings = () => setModal('settings')
+    window.addEventListener('forgeboard:settings', openSettings)
+    return () => window.removeEventListener('forgeboard:settings', openSettings)
+  }, [])
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement
+      if (event.ctrlKey || event.metaKey || event.altKey || modal || document.querySelector('[role="dialog"]') || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable) return
+      if (event.key.toLowerCase() === 'q') { event.preventDefault(); setModal('capture') }
+      if (event.key.toLowerCase() === 'n') { event.preventDefault(); setTaskBoard(undefined); setModal('task') }
+      if (event.key.toLowerCase() === 'g') { event.preventDefault(); setView({ type: 'overview' }) }
+      if (event.key.toLowerCase() === 'p') { event.preventDefault(); setView({ type: 'notes' }) }
+      if (event.key.toLowerCase() === 's') { event.preventDefault(); void forge.actions.syncNow() }
+      if (event.key === '?') { event.preventDefault(); setModal('shortcuts') }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [forge.actions, modal])
+  useEffect(() => {
+    if (!toast) return
+    const timer = window.setTimeout(() => setToast(''), 3000)
+    return () => window.clearTimeout(timer)
+  }, [toast])
+  useEffect(() => {
+    const timer = window.setInterval(() => setClockTick((value) => value + 1), 60_000)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  const navigate = (next: View) => { setView(next); setMobileNav(false); window.scrollTo({ top: 0, behavior: 'smooth' }) }
+  const openTaskModal = (board?: BoardKey) => { setTaskBoard(board); setModal('task') }
+  const openReschedule = (task: Task) => { setRescheduleTask(task); setModal('reschedule') }
+  const openUpdate = (item: ActivityNotification) => {
+    markNotificationsRead([item.id])
+    dismissToast(item.id)
+    if (item.taskId && forge.workspace.tasks.some((task) => task.id === item.taskId && !task.deletedAt)) {
+      setNotificationTaskId(item.taskId)
+      setMobileNav(false)
+    } else navigate(item.kind === 'summary' || item.kind === 'handoff' ? { type: 'notifications' } : item.projectId ? { type: 'project', projectId: item.projectId } : { type: 'notifications' })
+  }
+  const searchAllNotes = (query: string) => {
+    setNotesQuery(query)
+    if (view.type !== 'notes') setView({ type: 'notes' })
+  }
+  const syncLabel = forge.localSave.error ? 'Save failed' : forge.localSave.pending || forge.localSave.saving ? 'Saving…' : forge.syncMeta.syncing ? 'Syncing…' : forge.syncMeta.pendingWrites ? `${forge.syncMeta.pendingWrites} queued` : forge.syncMeta.lastSyncedAt ? 'Synced' : 'Not synced'
+
   return <div className="app-shell">
-    <aside className={`sidebar ${mobileNav ? 'mobile-open' : ''}`}><div className="brand"><span className="brand-mark">F</span><div><strong>Forgeboard</strong><small>A clearer place for your work</small></div><button type="button" className="mobile-close icon-button" onClick={() => setMobileNav(false)} aria-label="Close navigation"><X size={20} /></button></div><nav className="main-nav" aria-label="Main navigation"><button type="button" aria-current={view.type === 'overview' ? 'page' : undefined} className={view.type === 'overview' ? 'active' : ''} onClick={() => navigate({ type: 'overview' })}><LayoutDashboard size={18} />Today<span>{forge.workspace.tasks.filter((task) => !task.completedAt && !task.deletedAt).length}</span></button><button type="button" aria-current={view.type === 'notes' ? 'page' : undefined} className={view.type === 'notes' ? 'active' : ''} onClick={() => navigate({ type: 'notes' })}><NotebookPen size={18} />Personal notes</button><button type="button" aria-current={view.type === 'reports' ? 'page' : undefined} className={view.type === 'reports' ? 'active' : ''} onClick={() => navigate({ type: 'reports' })}><FileText size={18} />Weekly reports</button></nav><div className="nav-section-title"><span>Project boards</span><button type="button" onClick={() => setModal('project')} aria-label="Add project"><Plus size={16} /></button></div><nav className="project-nav" aria-label="Projects">{forge.workspace.projects.filter((project) => !project.deletedAt).map((project) => <button type="button" key={project.id} aria-current={view.type === 'project' && view.projectId === project.id ? 'page' : undefined} className={view.type === 'project' && view.projectId === project.id ? 'active' : ''} onClick={() => navigate({ type: 'project', projectId: project.id })}><span className="nav-project-icon" style={{ background: `${project.color}22`, color: project.color }}>{project.icon}</span><span>{project.name}</span><small>{forge.workspace.tasks.filter((task) => task.projectId === project.id && !task.completedAt && !task.deletedAt).length}</small></button>)}</nav><div className="sidebar-bottom"><button type="button" onClick={() => setModal('shortcuts')}><Keyboard size={17} />Shortcuts <kbd>?</kbd></button><button type="button" onClick={() => setModal('settings')}><Settings size={17} />Data connection</button></div></aside>
+    <aside className={`sidebar ${mobileNav ? 'mobile-open' : ''}`}>
+      <div className="brand"><span className="brand-mark">F</span><div><strong>Forgeboard</strong><small>A clearer place for your work</small></div><button type="button" className="mobile-close icon-button" onClick={() => setMobileNav(false)} aria-label="Close navigation"><X size={20} /></button></div>
+      <nav className="main-nav" aria-label="Main navigation">
+        <button type="button" aria-current={view.type === 'overview' ? 'page' : undefined} className={view.type === 'overview' ? 'active' : ''} onClick={() => navigate({ type: 'overview' })}><LayoutDashboard size={18} />Today<span>{forge.workspace.tasks.filter((task) => !task.completedAt && !task.deletedAt).length}</span></button>
+        <button type="button" aria-current={view.type === 'notes' ? 'page' : undefined} className={view.type === 'notes' ? 'active' : ''} onClick={() => navigate({ type: 'notes' })}><NotebookPen size={18} />Personal notes</button>
+        <button type="button" aria-current={view.type === 'notifications' ? 'page' : undefined} className={`notification-nav ${view.type === 'notifications' ? 'active' : ''} ${unreadIds.size ? 'has-unread' : ''}`} onClick={() => navigate({ type: 'notifications' })}><Bell size={18} />Notifications<span aria-label={`${unreadIds.size} unread updates`}>{unreadIds.size || ''}</span></button>
+        <button type="button" aria-current={view.type === 'reports' ? 'page' : undefined} className={view.type === 'reports' ? 'active' : ''} onClick={() => navigate({ type: 'reports' })}><FileText size={18} />Weekly reports</button>
+      </nav>
+      <form className="sidebar-note-search" role="search" aria-label="Search all project notes" onSubmit={(event) => { event.preventDefault(); navigate({ type: 'notes', projectId: activeProjectId }) }}>
+        <label htmlFor="all-notes-search">Search every notebook</label>
+        <div><Search size={15} /><input id="all-notes-search" type="search" aria-label="Search all notes" placeholder="Search all notes…" value={notesQuery} onChange={(event) => searchAllNotes(event.target.value)} /><button type="submit" aria-label="Show note search results"><ChevronRight size={16} /></button></div>
+      </form>
+      <div className="nav-section-title"><span>Project boards</span><button type="button" onClick={() => setModal('project')} aria-label="Add project"><Plus size={16} /></button></div>
+      <nav className="project-nav" aria-label="Projects">{forge.workspace.projects.filter((project) => !project.deletedAt).map((project) => <button type="button" key={project.id} aria-current={view.type === 'project' && view.projectId === project.id ? 'page' : undefined} className={view.type === 'project' && view.projectId === project.id ? 'active' : ''} onClick={() => navigate({ type: 'project', projectId: project.id })}><span className="nav-project-icon" style={{ background: `${project.color}22`, color: project.color }}>{project.icon}</span><span>{project.name}</span><small>{forge.workspace.tasks.filter((task) => task.projectId === project.id && !task.completedAt && !task.deletedAt).length}</small></button>)}</nav>
+      <div className="sidebar-bottom"><button type="button" onClick={() => setModal('shortcuts')}><Keyboard size={17} />Shortcuts <kbd>?</kbd></button><button type="button" onClick={() => setModal('settings')}><Settings size={17} />Data connection</button></div>
+    </aside>
     {mobileNav && <button type="button" className="nav-scrim" aria-label="Close navigation" onClick={() => setMobileNav(false)} />}
-    <main className="main-area"><header className="topbar"><button className="menu-button" type="button" onClick={() => setMobileNav(true)} aria-label="Open navigation"><Menu size={21} /></button><div className="topbar-context">{activeProject ? <><ProjectDot project={activeProject} /><span>{activeProject.name}</span></> : <><span className="topbar-mark">F</span><span>{view.type === 'notes' ? 'Personal notes' : view.type === 'reports' ? 'Weekly reports' : 'Studio overview'}</span></>}</div><div className="topbar-actions"><span className={`sync-state ${forge.syncMeta.online ? '' : 'offline'}`}>{forge.syncMeta.online ? <Wifi size={14} /> : <WifiOff size={14} />}{forge.localSave.error ? 'Save failed' : forge.localSave.pending || forge.localSave.saving ? 'Saving…' : forge.syncMeta.syncing ? 'Syncing…' : forge.syncMeta.pendingWrites ? `${forge.syncMeta.pendingWrites} queued` : forge.syncMeta.lastSyncedAt ? 'Synced' : 'Not synced'}</span><button className="sync-button" type="button" onClick={() => void forge.actions.syncNow()} disabled={forge.syncMeta.syncing} title="Sync now (S)" aria-label="Sync now"><RefreshCw size={17} className={forge.syncMeta.syncing ? 'spin' : ''} /><span>Sync now</span></button><button className="capture-button" type="button" onClick={() => setModal('capture')} aria-label="Quick capture"><Inbox size={17} /><span>Quick capture</span><kbd>Q</kbd></button></div></header>{forge.localSave.error && view.type !== 'notes' && <div className="sync-error" role="alert"><AlertTriangle size={16} /><span>Your latest edits could not be saved on this device. Keep this tab open.</span><button type="button" onClick={() => { void forge.actions.flushLocalSaves().catch(() => {}) }}>Retry save</button></div>}{forge.syncMeta.lastError && <div className="sync-error"><AlertTriangle size={16} /><span>{forge.syncMeta.lastError}</span><button type="button" onClick={() => setModal('settings')}>Check connection</button></div>}<div className="content-wrap">{view.type === 'overview' && <GlobalView forge={forge} onProject={(id) => navigate({ type: 'project', projectId: id })} onTask={() => openTaskModal()} onDeadline={() => setModal('deadline')} onReschedule={openReschedule} />}{view.type === 'project' && <ProjectView key={view.projectId} forge={forge} projectId={view.projectId} onTask={openTaskModal} onDeadline={() => setModal('deadline')} onReschedule={openReschedule} onNotes={() => navigate({ type: 'notes', projectId: view.projectId })} />}{view.type === 'reports' && <ReportsView forge={forge} />}{view.type === 'notes' && <PersonalNotes key={view.projectId ?? 'all-notes'} forge={forge} onAddProject={() => setModal('project')} initialProjectId={view.projectId} onProjectChange={(projectId) => navigate({ type: 'notes', projectId })} />}</div></main>
-    <nav className="mobile-bottom-nav" aria-label="Mobile navigation"><button type="button" className={view.type === 'overview' ? 'active' : ''} onClick={() => navigate({ type: 'overview' })}><LayoutDashboard size={20} /><span>Today</span></button><button type="button" className={view.type === 'notes' ? 'active' : ''} onClick={() => navigate({ type: 'notes' })}><NotebookPen size={20} /><span>Notes</span></button><button type="button" onClick={() => { setTaskBoard(undefined); setModal('task') }}><span className="mobile-add"><Plus size={24} /></span><span>Add task</span></button><button type="button" className={view.type === 'reports' ? 'active' : ''} onClick={() => navigate({ type: 'reports' })}><FileText size={20} /><span>Reports</span></button></nav>
-    {modal === 'capture' && <CaptureModal forge={forge} activeProjectId={activeProjectId} onClose={() => setModal(null)} onRouted={setToast} />}{modal === 'project' && <ProjectModal forge={forge} onClose={() => setModal(null)} onCreated={(id) => navigate({ type: view.type === 'notes' ? 'notes' : 'project', projectId: id })} />}{modal === 'task' && <TaskModal forge={forge} activeProjectId={activeProjectId} initialBoard={taskBoard} onClose={() => setModal(null)} />}{modal === 'deadline' && <DeadlineModal forge={forge} activeProjectId={activeProjectId} onClose={() => setModal(null)} />}{modal === 'settings' && <SettingsModal forge={forge} onClose={() => setModal(null)} />}{modal === 'shortcuts' && <ShortcutsModal onClose={() => setModal(null)} />}{modal === 'reschedule' && rescheduleTask && <RescheduleModal forge={forge} task={rescheduleTask} onClose={() => { setModal(null); setRescheduleTask(undefined) }} />}{toast && <div className="toast"><Check size={16} />{toast}</div>}
+    <main className="main-area">
+      <header className="topbar">
+        <button className="menu-button" type="button" onClick={() => setMobileNav(true)} aria-label="Open navigation"><Menu size={21} /></button>
+        <div className="topbar-context">{activeProject ? <><ProjectDot project={activeProject} /><span>{activeProject.name}</span></> : <><span className="topbar-mark">F</span><span>{view.type === 'notes' ? 'Personal notes' : view.type === 'notifications' ? 'Notifications' : view.type === 'reports' ? 'Weekly reports' : 'Studio overview'}</span></>}</div>
+        <div className="topbar-actions">
+          <span className={`sync-state ${forge.syncMeta.online ? '' : 'offline'}`}>{forge.syncMeta.online ? <Wifi size={14} /> : <WifiOff size={14} />}{syncLabel}</span>
+          <button className={`notification-bell icon-button ${unreadIds.size ? 'has-unread' : ''}`} type="button" aria-label={`Notifications, ${unreadIds.size} unread`} onClick={() => navigate({ type: 'notifications' })}><Bell size={18} />{unreadIds.size > 0 && <span>{unreadIds.size > 99 ? '99+' : unreadIds.size}</span>}</button>
+          <button className="sync-button" type="button" onClick={() => void forge.actions.syncNow()} disabled={forge.syncMeta.syncing} title="Sync now (S)" aria-label="Sync now"><RefreshCw size={17} className={forge.syncMeta.syncing ? 'spin' : ''} /><span>Sync now</span></button>
+          <button className="capture-button" type="button" onClick={() => setModal('capture')} aria-label="Quick capture"><Inbox size={17} /><span>Quick capture</span><kbd>Q</kbd></button>
+        </div>
+      </header>
+      {forge.localSave.error && view.type !== 'notes' && <div className="sync-error" role="alert"><AlertTriangle size={16} /><span>Your latest edits could not be saved on this device. Keep this tab open.</span><button type="button" onClick={() => { void forge.actions.flushLocalSaves().catch(() => {}) }}>Retry save</button></div>}
+      {forge.syncMeta.lastError && <div className="sync-error"><AlertTriangle size={16} /><span>{forge.syncMeta.lastError}</span><button type="button" onClick={() => setModal('settings')}>Check connection</button></div>}
+      <div className="content-wrap">
+        {view.type === 'overview' && <GlobalView forge={forge} onProject={(id) => navigate({ type: 'project', projectId: id })} onTask={() => openTaskModal()} onDeadline={() => setModal('deadline')} onReschedule={openReschedule} />}
+        {view.type === 'project' && <ProjectView key={view.projectId} forge={forge} projectId={view.projectId} onTask={openTaskModal} onDeadline={() => setModal('deadline')} onReschedule={openReschedule} onNotes={() => { setNotesQuery(''); navigate({ type: 'notes', projectId: view.projectId }) }} />}
+        {view.type === 'reports' && <ReportsView forge={forge} />}
+        {view.type === 'notes' && <PersonalNotes forge={forge} onAddProject={() => setModal('project')} initialProjectId={view.projectId} onProjectChange={(projectId) => navigate({ type: 'notes', projectId })} searchQuery={notesQuery} onSearchQueryChange={setNotesQuery} />}
+        {view.type === 'notifications' && <NotificationCenter items={updates} unreadIds={unreadIds} projects={forge.workspace.projects} onRead={markNotificationsRead} onOpen={openUpdate} />}
+      </div>
+    </main>
+    <nav className="mobile-bottom-nav" aria-label="Mobile navigation">
+      <button type="button" className={view.type === 'overview' ? 'active' : ''} onClick={() => navigate({ type: 'overview' })}><LayoutDashboard size={20} /><span>Today</span></button>
+      <button type="button" className={view.type === 'notes' ? 'active' : ''} onClick={() => navigate({ type: 'notes' })}><NotebookPen size={20} /><span>Notes</span></button>
+      <button type="button" onClick={() => { setTaskBoard(undefined); setModal('task') }}><span className="mobile-add"><Plus size={24} /></span><span>Add task</span></button>
+      <button type="button" className={view.type === 'reports' ? 'active' : ''} onClick={() => navigate({ type: 'reports' })}><FileText size={20} /><span>Reports</span></button>
+    </nav>
+    <ActivityToastStack items={toasts} projects={forge.workspace.projects} onOpen={openUpdate} onDismiss={dismissToast} />
+    {notificationTask && <ReviewPanel key={notificationTask.id} forge={forge} task={notificationTask} onClose={() => setNotificationTaskId(undefined)} />}
+    {modal === 'capture' && <CaptureModal forge={forge} activeProjectId={activeProjectId} onClose={() => setModal(null)} onRouted={setToast} />}
+    {modal === 'project' && <ProjectModal forge={forge} onClose={() => setModal(null)} onCreated={(id) => navigate({ type: view.type === 'notes' ? 'notes' : 'project', projectId: id })} />}
+    {modal === 'task' && <TaskModal forge={forge} activeProjectId={activeProjectId} initialBoard={taskBoard} onClose={() => setModal(null)} />}
+    {modal === 'deadline' && <DeadlineModal forge={forge} activeProjectId={activeProjectId} onClose={() => setModal(null)} />}
+    {modal === 'settings' && <SettingsModal forge={forge} onClose={() => setModal(null)} />}
+    {modal === 'shortcuts' && <ShortcutsModal onClose={() => setModal(null)} />}
+    {modal === 'reschedule' && rescheduleTask && <RescheduleModal forge={forge} task={rescheduleTask} onClose={() => { setModal(null); setRescheduleTask(undefined) }} />}
+    {toast && <div className="toast"><Check size={16} />{toast}</div>}
   </div>
 }
 

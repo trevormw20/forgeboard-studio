@@ -76,6 +76,17 @@ function NotesHarness() {
 }
 
 describe('notes autosave integration', () => {
+  it('warns before an immediate browser refresh while a draft is still unsaved, then allows leaving once saved', async () => {
+    const { result } = await startHook()
+    act(() => { result.current.actions.updatePersonalNote('first-note', { body: 'Do not drop this last edit on refresh' }) })
+    const leaving = new Event('beforeunload', { cancelable: true })
+    await act(async () => { window.dispatchEvent(leaving) })
+    expect(leaving.defaultPrevented).toBe(true)
+    expect(storage.cached?.personalNotes?.[0].body).toBe('Do not drop this last edit on refresh')
+    const savedLeaving = new Event('beforeunload', { cancelable: true })
+    act(() => { window.dispatchEvent(savedLeaving) })
+    expect(savedLeaving.defaultPrevented).toBe(false)
+  })
   it('updates the editor immediately and saves the latest title, body, and checklist text once after a typing pause', async () => {
     const { result } = await startHook()
     act(() => { result.current.actions.updatePersonalNote('first-note', { title: 'A' }) })

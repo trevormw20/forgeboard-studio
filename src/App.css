@@ -11,6 +11,17 @@
 .main-nav button:hover, .project-nav button:hover, .sidebar-bottom button:hover { color: var(--text); background: var(--panel-2); }
 .main-nav button.active, .project-nav button.active { color: var(--text); background: linear-gradient(90deg, #20262d, #181c22); box-shadow: inset 2px 0 var(--lime); }
 .main-nav button > span { margin-left: auto; color: var(--muted-2); font-size: 12px; }
+.main-nav .notification-nav.has-unread { background: #23332f; color: #d2f6e9; box-shadow: inset 3px 0 #79d9b4, 0 0 14px #66c8a31a; }
+.main-nav .notification-nav.has-unread > span { min-width: 23px; padding: 3px 6px; border-radius: 7px; color: #102b24; background: #9ce3c7; text-align: center; font-weight: 800; }
+.sidebar-note-search { margin: 0 14px 6px; min-width: 0; }
+.sidebar-note-search > label { display: block; color: var(--muted-2); margin: 0 0 7px 3px; font-size: 10px; }
+.sidebar-note-search > div { display: flex; align-items: center; gap: 7px; min-width: 0; padding-left: 9px; color: #a5b6cf; background: #151c26; border: 1px solid #344258; border-radius: 9px; }
+.sidebar-note-search input { min-width: 0; width: 100%; height: 42px; background: transparent; color: var(--text); font: inherit; font-size: 12px; border: 0; outline: 0; }
+.sidebar-note-search > div:focus-within { border-color: #b3a2e7; outline: 1px solid #b3a2e7; }
+.sidebar-note-search button { min-width: 35px; min-height: 42px; display: grid; place-items: center; border: 0; background: transparent; color: #b8c9e3; border-radius: 7px; }
+.notification-bell { min-width: 38px; min-height: 38px; display: grid; place-items: center; position: relative; }
+.notification-bell.has-unread { color: #c5f7df; border-color: #75bf9d; background: #203d32; }
+.notification-bell > span { position: absolute; top: -6px; right: -6px; min-width: 17px; height: 17px; border-radius: 9px; padding: 0 3px; display: grid; place-items: center; font-size: 9px; font-weight: 800; color: #102b24; background: #9ce3c7; }
 .nav-section-title { display: flex; justify-content: space-between; align-items: center; padding: 14px 17px 6px 22px; color: var(--muted-2); font-size: 10px; text-transform: uppercase; letter-spacing: 1.35px; font-weight: 700; }
 .nav-section-title button { width: 28px; height: 28px; display: grid; place-items: center; border: 0; border-radius: 7px; color: var(--muted); background: transparent; }
 .nav-section-title button:hover { color: var(--text); background: var(--panel-2); }

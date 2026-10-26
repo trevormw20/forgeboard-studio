@@ -2,22 +2,25 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import { createSeedWorkspace } from '../seed'
-import type { Workspace } from '../types'
+import type { MutationRecord, Workspace } from '../types'
 import { useForgeboard } from './useForgeboard'
-import { fetchWorkspace, putWorkspace } from '../lib/github'
+import { fetchTaskInbox, fetchWorkspace, GitHubSyncError, putWorkspace } from '../lib/github'
 
-const memory = vi.hoisted(() => ({ mutations: new Map<string, unknown>() }))
+const memory = vi.hoisted(() => ({ mutations: new Map<string, unknown>(), writes: [] as { workspace: Workspace; records: MutationRecord[] }[] }))
 vi.mock('../lib/db', () => ({
   loadCachedWorkspace: async () => undefined, loadConnection: async () => undefined, loadBaseWorkspace: async () => undefined,
   countMutations: async () => memory.mutations.size, mutationIds: async () => [...memory.mutations.keys()],
-  saveWorkspaceChanges: async (_workspace: unknown, records: { id: string }[]) => { records.forEach((record) => memory.mutations.set(record.id, record)) },
+  saveWorkspaceChanges: async (workspace: Workspace, records: MutationRecord[]) => {
+    memory.writes.push({ workspace: structuredClone(workspace), records: structuredClone(records) })
+    records.forEach((record) => memory.mutations.set(record.id, record))
+  },
   clearMutations: async (ids: string[]) => { ids.forEach((id) => memory.mutations.delete(id)) },
   saveConnection: async () => {}, saveBaseWorkspace: async () => {}, saveSha: async () => {}, clearConnection: async () => {},
 }))
-vi.mock('../lib/github', async (original) => ({ ...await original<object>(), fetchWorkspace: vi.fn(), putWorkspace: vi.fn(), fetchTaskInbox: async () => [] }))
+vi.mock('../lib/github', async (original) => ({ ...await original<object>(), fetchWorkspace: vi.fn(), putWorkspace: vi.fn(), fetchTaskInbox: vi.fn().mockResolvedValue([]) }))
 const config = { owner: 'test', repo: 'vault', branch: 'main', path: 'data/workspace.json', token: 'test-token', rememberToken: false }
-afterEach(cleanup)
-beforeEach(() => { memory.mutations.clear(); vi.mocked(fetchWorkspace).mockReset(); vi.mocked(putWorkspace).mockReset() })
+afterEach(async () => { await act(async () => { cleanup() }); vi.useRealTimers(); vi.restoreAllMocks() })
+beforeEach(() => { memory.mutations.clear(); memory.writes.length = 0; vi.mocked(fetchWorkspace).mockReset(); vi.mocked(putWorkspace).mockReset(); vi.mocked(fetchTaskInbox).mockReset().mockResolvedValue([]) })
 
 describe('review changes during sync', () => {
   it('queues nested checklist changes, scopes actions to their note, and uploads complete note content', async () => {
@@ -148,5 +151,118 @@ describe('review changes during sync', () => {
     expect(memory.mutations.size).toBe(1)
     expect(result.current.syncMeta.pendingWrites).toBe(1)
     expect(result.current.workspace.tasks.some((task) => task.title === 'Feedback entered during upload')).toBe(true)
+  })
+
+  it('persists one notification receipt mutation and ignores repeated or empty reads without changing notes', async () => {
+    const { result } = renderHook(() => useForgeboard())
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    let noteId = ''
+    await act(async () => {
+      noteId = result.current.actions.addPersonalNote({ title: 'Keep this note', body: 'The original text' })
+      await result.current.actions.flushLocalSaves()
+    })
+    const notesBefore = structuredClone(result.current.workspace.personalNotes)
+    const activityBefore = structuredClone(result.current.workspace.activity)
+    memory.mutations.clear()
+    memory.writes.length = 0
+
+    await act(async () => {
+      result.current.actions.markNotificationsRead(['incoming-one', 'incoming-one', ''])
+      await result.current.actions.flushLocalSaves()
+    })
+    expect(result.current.workspace.notificationReads).toEqual([{ id: 'incoming-one', readAt: expect.any(String) }])
+    expect(memory.writes).toHaveLength(1)
+    expect(memory.writes[0].workspace.notificationReads).toEqual(result.current.workspace.notificationReads)
+    expect(memory.writes[0].records).toHaveLength(1)
+    expect(memory.writes[0].records[0]).toMatchObject({ type: 'notification.read', entityId: undefined })
+    expect(memory.mutations.size).toBe(1)
+    expect(result.current.syncMeta.dirty).toBe(true)
+    expect(result.current.workspace.personalNotes).toEqual(notesBefore)
+    expect(result.current.workspace.personalNotes?.find((note) => note.id === noteId)?.body).toBe('The original text')
+    expect(result.current.workspace.activity).toEqual(activityBefore)
+
+    const workspaceBeforeDuplicates = result.current.workspace
+    await act(async () => {
+      result.current.actions.markNotificationsRead([])
+      result.current.actions.markNotificationsRead(['', 'incoming-one', 'incoming-one'])
+      await result.current.actions.flushLocalSaves()
+    })
+    expect(result.current.workspace).toBe(workspaceBeforeDuplicates)
+    expect(memory.writes).toHaveLength(1)
+    expect(memory.mutations.size).toBe(1)
+  })
+
+  it('keeps reading notifications from another device and uploads only the newly read IDs', async () => {
+    const remote = createSeedWorkspace()
+    remote.notificationReads = [{ id: 'already-read-on-phone', readAt: '2026-10-26T16:00:00Z' }]
+    vi.mocked(fetchWorkspace).mockResolvedValue({ workspace: remote, sha: 'sha' })
+    vi.mocked(putWorkspace).mockResolvedValue('receipt-sha')
+    const { result } = renderHook(() => useForgeboard())
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    await act(async () => { await result.current.actions.updateConnection(config) })
+    expect(putWorkspace).not.toHaveBeenCalled()
+    await act(async () => {
+      result.current.actions.markNotificationsRead(['already-read-on-phone', 'new-on-desktop'])
+      await result.current.actions.syncNow()
+    })
+    const uploaded = vi.mocked(putWorkspace).mock.calls[0][1]
+    expect(uploaded.notificationReads).toEqual(expect.arrayContaining([
+      { id: 'already-read-on-phone', readAt: '2026-10-26T16:00:00Z' },
+      { id: 'new-on-desktop', readAt: expect.any(String) },
+    ]))
+    expect(uploaded.notificationReads).toHaveLength(2)
+    expect(result.current.syncMeta.pendingWrites).toBe(0)
+  })
+
+  it('flushes local notes during a GitHub rate pause and resumes the 15-second polling only after retryAt', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-10-26T16:00:00Z'))
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true)
+    const retryAt = Date.now() + 45_000
+    const remote = createSeedWorkspace()
+    vi.mocked(fetchWorkspace)
+      .mockRejectedValueOnce(new GitHubSyncError('GitHub asked us to pause.', 429, retryAt))
+      .mockResolvedValue({ workspace: remote, sha: 'after-pause-sha' })
+    vi.mocked(putWorkspace).mockResolvedValue('saved-after-pause')
+    const { result } = renderHook(() => useForgeboard())
+    await act(async () => {})
+    expect(result.current.ready).toBe(true)
+    await act(async () => { expect(await result.current.actions.updateConnection(config)).toBe(false) })
+    expect(fetchWorkspace).toHaveBeenCalledTimes(1)
+    expect(fetchTaskInbox).toHaveBeenCalledTimes(1)
+    let noteId = ''
+    await act(async () => {
+      noteId = result.current.actions.addPersonalNote({ title: 'Keep working while paused', body: '' })
+      await result.current.actions.flushLocalSaves()
+    })
+    memory.writes.length = 0
+    act(() => { result.current.actions.updatePersonalNote(noteId, { body: 'This typing must be durable even while GitHub is paused.' }) })
+    expect(result.current.localSave.pending).toBe(true)
+    expect(memory.writes).toHaveLength(0)
+
+    await act(async () => { expect(await result.current.actions.syncNow()).toBe(false) })
+    expect(memory.writes).toHaveLength(1)
+    expect(memory.writes[0].workspace.personalNotes?.find((note) => note.id === noteId)?.body).toBe('This typing must be durable even while GitHub is paused.')
+    expect(memory.writes[0].records).toEqual([expect.objectContaining({ type: 'personal-note.update', entityId: noteId })])
+    expect(result.current.localSave.pending).toBe(false)
+    expect(memory.mutations.size).toBe(2)
+    expect(result.current.syncMeta.lastError).toMatch(/pause requests/)
+    expect(fetchWorkspace).toHaveBeenCalledTimes(1)
+    expect(fetchTaskInbox).toHaveBeenCalledTimes(1)
+    expect(putWorkspace).not.toHaveBeenCalled()
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(44_999) })
+    expect(fetchWorkspace).toHaveBeenCalledTimes(1)
+    expect(fetchTaskInbox).toHaveBeenCalledTimes(1)
+    expect(putWorkspace).not.toHaveBeenCalled()
+    await act(async () => { await vi.advanceTimersByTimeAsync(1) })
+    expect(fetchWorkspace).toHaveBeenCalledTimes(2)
+    expect(fetchTaskInbox).toHaveBeenCalledTimes(2)
+    expect(putWorkspace).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(putWorkspace).mock.calls[0][1].personalNotes?.find((note) => note.id === noteId)?.body).toBe('This typing must be durable even while GitHub is paused.')
+    expect(result.current.syncMeta.lastError).toBeUndefined()
+    expect(result.current.syncMeta.lastSyncedAt).toBe('2026-10-26T16:00:45.000Z')
+    expect(memory.mutations.size).toBe(0)
   })
 })

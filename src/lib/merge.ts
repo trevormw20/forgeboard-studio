@@ -113,6 +113,10 @@ export function mergeWorkspaces(base: Workspace | undefined, local: Workspace, r
     inboxNotes: mergeCollection('inbox-note', base?.inboxNotes ?? [], local.inboxNotes, remote.inboxNotes, conflicts),
     personalNotes: local.personalNotes || remote.personalNotes || base?.personalNotes ? mergeCollection('personal-note', base?.personalNotes ?? [], local.personalNotes ?? [], remote.personalNotes ?? [], conflicts) : undefined,
     noteLabels: local.noteLabels || remote.noteLabels || base?.noteLabels ? mergeCollection('note-label', base?.noteLabels ?? [], local.noteLabels ?? [], remote.noteLabels ?? [], conflicts) : undefined,
+    notificationReads: local.notificationReads || remote.notificationReads || base?.notificationReads ? [...new Map(
+      [...(base?.notificationReads ?? []), ...(local.notificationReads ?? []), ...(remote.notificationReads ?? [])]
+        .sort((a, b) => a.readAt.localeCompare(b.readAt)).map((receipt) => [receipt.id, receipt]),
+    ).values()] : undefined,
     activity: unionById(local.activity, remote.activity) as Workspace['activity'],
     reports: (unionById(local.reports, remote.reports) as Workspace['reports']).filter((report) => Date.parse(report.createdAt) >= Date.now() - 30 * 86_400_000),
     conflicts: unionById(conflicts, []) as ConflictRecord[],

@@ -66,7 +66,7 @@ describe('organized workspace navigation', () => {
     expect(screen.queryByRole('heading', { name: 'Personal notes' })).toBeNull()
     fireEvent.keyDown(document.body, { key: 'p' })
     expect(screen.getByRole('heading', { name: 'Personal notes' })).toBeTruthy()
-    const search = screen.getByRole('searchbox', { name: 'Search General notes' })
+    const search = screen.getByRole('searchbox', { name: 'Search all notes' })
     fireEvent.keyDown(search, { key: 'g' })
     expect(screen.getByRole('heading', { name: 'Personal notes' })).toBeTruthy()
   })
