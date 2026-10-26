@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { useState } from 'react'
 import { useForgeboard } from '../hooks/useForgeboard'
 import { createSeedWorkspace } from '../seed'
 import { PersonalNotes } from './PersonalNotes'
-import type { Workspace } from '../types'
+import type { PersonalNote, Workspace } from '../types'
 
 function seed(): Workspace {
   const workspace = createSeedWorkspace()
@@ -19,10 +19,10 @@ vi.mock('../lib/db', () => ({
   loadCachedWorkspace: async () => cached,
   loadConnection: async () => undefined,
   countMutations: async () => 0,
-  saveWorkspaceChanges: async () => {},
+  saveWorkspaceChanges: async (workspace: Workspace) => { cached = structuredClone(workspace) },
 }))
 
-afterEach(() => { cleanup(); cached = undefined })
+afterEach(async () => { cleanup(); await act(async () => { await Promise.resolve() }); cached = undefined; vi.useRealTimers() })
 
 function Harness({ initialProjectId = 'snail', onAdd = () => {}, controlledSearch = false }: { initialProjectId?: string; onAdd?: () => void; controlledSearch?: boolean }) {
   const forge = useForgeboard()
@@ -38,18 +38,23 @@ async function start() {
   await screen.findByRole('button', { name: 'New note' })
 }
 
-function createNote(title: string, body?: string) {
-  fireEvent.click(screen.getByRole('button', { name: 'New note' }))
+function setNoteTitle(title: string) {
+  if (!screen.queryByLabelText('Note title')) fireEvent.click(screen.getByRole('button', { name: 'Add title' }))
   fireEvent.change(screen.getByLabelText('Note title'), { target: { value: title } })
-  if (body) {
-    fireEvent.click(screen.getByText('Add optional details'))
-    fireEvent.change(screen.getByLabelText('Note text'), { target: { value: body } })
-  }
 }
 
+function createNote(title: string) {
+  fireEvent.click(screen.getByRole('button', { name: 'New note' }))
+  setNoteTitle(title)
+}
+
+function savedNotes(): PersonalNote[] { return JSON.parse(screen.getByLabelText('Saved notes').textContent ?? '[]') }
+
 describe('Personal notes', () => {
-  it('creates one checklist note as capture typing starts without stealing focus or requiring Enter', async () => {
+  it('creates one untitled note with the capture text in its first checkbox, without stealing focus or requiring Enter', async () => {
     await start()
+    expect(screen.getByRole('region', { name: 'Personal notes' })).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: 'Personal notes' })).toBeNull()
     const capture = screen.getByRole('textbox', { name: 'Start a checklist note' }) as HTMLInputElement
     capture.focus()
     fireEvent.change(capture, { target: { value: '   ' } })
@@ -57,19 +62,22 @@ describe('Personal notes', () => {
     fireEvent.change(capture, { target: { value: 'Shop' } })
     fireEvent.change(capture, { target: { value: 'Shopping' } })
     fireEvent.change(capture, { target: { value: 'Shopping list' } })
-    const saved = JSON.parse(screen.getByLabelText('Saved notes').textContent ?? '[]')
+    const saved = savedNotes()
     expect(saved).toHaveLength(1)
-    expect(saved[0]).toMatchObject({ projectId: 'snail', title: 'Shopping list', body: '', checklist: [] })
+    expect(saved[0]).toMatchObject({ projectId: 'snail', title: '', body: '' })
+    expect(saved[0].checklist).toHaveLength(1)
+    expect(saved[0].checklist?.[0]).toMatchObject({ text: 'Shopping list', order: 0 })
     expect(document.activeElement).toBe(capture)
-    expect((screen.getByLabelText('Note title') as HTMLInputElement).value).toBe('Shopping list')
-    expect(screen.getByText('Add optional details').closest('details')?.open).toBe(false)
+    expect(screen.queryByLabelText('Note title')).toBeNull()
+    expect(screen.queryByLabelText('Note text')).toBeNull()
+    expect((screen.getByRole('textbox', { name: 'Edit Shopping list' }) as HTMLInputElement).value).toBe('Shopping list')
     fireEvent.keyDown(capture, { key: 'Enter' })
     expect(capture.value).toBe('')
-    const firstCheckboxText = screen.getByRole('region', { name: 'Note checklist' }).querySelector<HTMLInputElement>('input:not([type="checkbox"])')
-    expect(firstCheckboxText).not.toBeNull()
-    expect(document.activeElement).toBe(firstCheckboxText)
-    fireEvent.change(firstCheckboxText!, { target: { value: 'Walmart' } })
-    expect(JSON.parse(screen.getByLabelText('Saved notes').textContent ?? '[]')[0].checklist[0].text).toBe('Walmart')
+    const nextCheckboxText = screen.getByRole('textbox', { name: 'Edit New item' })
+    expect(document.activeElement).toBe(nextCheckboxText)
+    expect(savedNotes()[0].checklist).toHaveLength(2)
+    fireEvent.change(nextCheckboxText, { target: { value: 'Walmart' } })
+    expect(savedNotes()[0].checklist?.map((item) => item.text)).toEqual(['Shopping list', 'Walmart'])
   })
 
   it('starts a separate checklist capture after leaving the field and routes it only to the chosen notebook', async () => {
@@ -80,11 +88,62 @@ describe('Personal notes', () => {
     expect(capture.value).toBe('')
     fireEvent.change(screen.getByLabelText('Project notebook'), { target: { value: 'tactics' } })
     fireEvent.change(capture, { target: { value: 'Balance checks' } })
-    const saved = JSON.parse(screen.getByLabelText('Saved notes').textContent ?? '[]')
+    const saved = savedNotes()
     expect(saved).toHaveLength(2)
-    expect(saved.find((note: { title: string }) => note.title === 'Letter supplies').projectId).toBe('snail')
-    expect(saved.find((note: { title: string }) => note.title === 'Balance checks').projectId).toBe('tactics')
-    expect(saved.every((note: { checklist?: unknown[]; body: string }) => Array.isArray(note.checklist) && !note.body)).toBe(true)
+    expect(saved.find((note) => note.checklist?.[0]?.text === 'Letter supplies')?.projectId).toBe('snail')
+    expect(saved.find((note) => note.checklist?.[0]?.text === 'Balance checks')?.projectId).toBe('tactics')
+    expect(saved.every((note) => note.checklist?.length === 1 && !note.body && !note.title)).toBe(true)
+  })
+
+  it('saves captured checkbox edits and completion, then restores them after reloading without requiring a title', async () => {
+    cached = seed()
+    const first = render(<Harness />)
+    await screen.findByRole('button', { name: 'New note' })
+    vi.useFakeTimers()
+    const capture = screen.getByRole('textbox', { name: 'Start a checklist note' }) as HTMLInputElement
+    fireEvent.change(capture, { target: { value: 'Fish' } })
+    fireEvent.blur(capture)
+    expect(capture.value).toBe('')
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Fish' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Edit Fish' }), { target: { value: 'Fish fillets' } })
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_000) })
+    expect(cached?.personalNotes).toHaveLength(1)
+    expect(cached?.personalNotes?.[0]).toMatchObject({ title: '', body: '' })
+    expect(cached?.personalNotes?.[0].checklist?.[0]).toMatchObject({ text: 'Fish fillets' })
+    expect(cached?.personalNotes?.[0].checklist?.[0].completedAt).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Close note' }))
+    expect(screen.getByRole('button', { name: 'Open note: Fish fillets' })).toBeTruthy()
+    first.unmount()
+    await act(async () => { render(<Harness />); await vi.advanceTimersByTimeAsync(0) })
+    fireEvent.click(screen.getByRole('button', { name: 'Open note: Fish fillets' }))
+    expect((screen.getByRole('checkbox', { name: 'Fish fillets' }) as HTMLInputElement).checked).toBe(true)
+    expect(screen.getAllByRole('listitem', { name: /^Checklist item:/ })).toHaveLength(1)
+    expect(screen.queryByLabelText('Note title')).toBeNull()
+    expect(screen.queryByLabelText('Note text')).toBeNull()
+    expect(savedNotes()[0].title).toBe('')
+  })
+
+  it('opens new notes and sub-notes directly on a blank checkbox, with a title only when requested', async () => {
+    await start()
+    fireEvent.click(screen.getByRole('button', { name: 'New note' }))
+    const first = screen.getByRole('textbox', { name: 'Edit New item' })
+    expect(document.activeElement).toBe(first)
+    expect(screen.queryByLabelText('Note title')).toBeNull()
+    expect(screen.queryByLabelText('Note text')).toBeNull()
+    expect(screen.queryByText('Add optional details')).toBeNull()
+    fireEvent.change(first, { target: { value: 'Walmart' } })
+    const parentId = savedNotes()[0].id
+    fireEvent.click(screen.getByRole('button', { name: 'Add sub-note' }))
+    const child = screen.getByRole('textbox', { name: 'Edit New item' })
+    expect(document.activeElement).toBe(child)
+    expect(screen.queryByLabelText('Note title')).toBeNull()
+    expect(screen.queryByLabelText('Note text')).toBeNull()
+    fireEvent.change(child, { target: { value: 'Fish' } })
+    expect(savedNotes().find((note) => note.parentId === parentId)).toMatchObject({ title: '', body: '', checklist: [{ text: 'Fish' }] })
+    fireEvent.click(screen.getByRole('button', { name: 'Add title' }))
+    const title = screen.getByLabelText('Note title') as HTMLInputElement
+    fireEvent.change(title, { target: { value: 'Optional groceries title' } })
+    expect(savedNotes().find((note) => note.parentId === parentId)?.title).toBe('Optional groceries title')
   })
 
   it('searches all notebooks from the sidebar, includes nested checklist text, and opens the exact project without losing selection', async () => {
@@ -130,7 +189,7 @@ describe('Personal notes', () => {
     render(<Harness controlledSearch />)
     await screen.findByRole('button', { name: 'New note' })
     createNote('A saved list')
-    expect(screen.getByText('Add optional details').closest('details')?.open).toBe(false)
+    expect(screen.queryByLabelText('Note text')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Close note' }))
     fireEvent.click(screen.getByRole('button', { name: 'Open note: A saved list' }))
     fireEvent.change(screen.getByLabelText('Note title'), { target: { value: 'A changed list' } })
@@ -138,7 +197,7 @@ describe('Personal notes', () => {
     expect((screen.getByLabelText('Project notebook') as HTMLSelectElement).value).toBe('tactics')
     expect(screen.queryByRole('region', { name: 'Note editor' })).toBeNull()
     const saved = JSON.parse(screen.getByLabelText('Saved notes').textContent ?? '[]')
-    expect(saved[0]).toMatchObject({ title: 'A changed list', projectId: 'snail', checklist: [] })
+    expect(saved[0]).toMatchObject({ title: 'A changed list', projectId: 'snail', checklist: [{ text: '' }] })
   })
 
   it('finds nested checklist wording and checks an item straight from its note card', async () => {
@@ -159,11 +218,19 @@ describe('Personal notes', () => {
   })
 
   it('keeps project notebooks separate, autosaves on switching, and adds sections from real projects', async () => {
-    await start()
-    createNote('Letter ideas', 'Remember the physical reader experience.')
+    cached = seed()
+    const at = '2026-10-26T18:00:00Z'
+    cached.personalNotes = [
+      { id: 'legacy-letters', projectId: 'snail', title: 'Letter ideas', body: 'Remember the reader.', createdAt: at, updatedAt: at },
+      { id: 'legacy-combat', projectId: 'tactics', title: 'Combat ideas', body: 'Make the turn clear.', createdAt: at, updatedAt: at },
+    ]
+    render(<Harness />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Open note: Letter ideas' }))
+    fireEvent.change(screen.getByLabelText('Note text'), { target: { value: 'Remember the physical reader experience.' } })
     fireEvent.change(screen.getByLabelText('Project notebook'), { target: { value: 'tactics' } })
     expect(screen.queryByText('Letter ideas')).toBeNull()
-    createNote('Combat ideas', 'Make the next turn legible.')
+    fireEvent.click(screen.getByRole('button', { name: 'Open note: Combat ideas' }))
+    fireEvent.change(screen.getByLabelText('Note text'), { target: { value: 'Make the next turn legible.' } })
     fireEvent.change(screen.getByLabelText('Project notebook'), { target: { value: 'snail' } })
     expect(screen.getByRole('button', { name: 'Open note: Letter ideas' })).toBeTruthy()
     expect(screen.queryByText('Combat ideas')).toBeNull()
@@ -179,10 +246,10 @@ describe('Personal notes', () => {
     await start()
     createNote('Launch plan')
     fireEvent.click(screen.getByRole('button', { name: 'Add sub-note' }))
-    fireEvent.change(screen.getByLabelText('Note title'), { target: { value: 'Audience' } })
+    setNoteTitle('Audience')
     fireEvent.click(screen.getByRole('button', { name: 'Add sub-note' }))
-    fireEvent.change(screen.getByLabelText('Note title'), { target: { value: 'Reader feedback' } })
-    fireEvent.change(screen.getByLabelText('Note text'), { target: { value: 'Ask for clarity, not approval.' } })
+    setNoteTitle('Reader feedback')
+    fireEvent.change(screen.getByRole('textbox', { name: 'Edit New item' }), { target: { value: 'Ask for clarity, not approval.' } })
     const breadcrumbs = within(screen.getByRole('navigation', { name: 'Note location' }))
     expect(breadcrumbs.getByRole('button', { name: 'Launch plan' })).toBeTruthy()
     expect(breadcrumbs.getByRole('button', { name: 'Audience' })).toBeTruthy()
@@ -203,8 +270,11 @@ describe('Personal notes', () => {
   })
 
   it('edits note and label colors, filters by custom labels, and pins without losing content', async () => {
-    await start()
-    createNote('Newsletter', '<script>not executable</script>')
+    cached = seed()
+    const at = '2026-10-26T18:00:00Z'
+    cached.personalNotes = [{ id: 'legacy-newsletter', projectId: 'snail', title: 'Newsletter', body: '<script>not executable</script>', createdAt: at, updatedAt: at }]
+    render(<Harness />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Open note: Newsletter' }))
     fireEvent.click(screen.getByRole('button', { name: 'Labels' }))
     fireEvent.change(screen.getByLabelText('Label name'), { target: { value: 'Launch' } })
     fireEvent.change(screen.getByLabelText('Label color'), { target: { value: '#de88ac' } })
@@ -230,7 +300,7 @@ describe('Personal notes', () => {
     await start()
     createNote('References')
     fireEvent.click(screen.getByRole('button', { name: 'Add sub-note' }))
-    fireEvent.change(screen.getByLabelText('Note title'), { target: { value: 'Paper stock' } })
+    setNoteTitle('Paper stock')
     fireEvent.click(within(screen.getByRole('navigation', { name: 'Note location' })).getByRole('button', { name: 'References' }))
     fireEvent.click(screen.getByRole('button', { name: 'Delete current note and sub-notes' }))
     expect(screen.queryByRole('button', { name: 'Open note: References' })).toBeNull()
@@ -256,7 +326,7 @@ describe('Personal notes', () => {
     await screen.findByRole('button', { name: 'New note' })
     createNote('Keep for later')
     fireEvent.click(screen.getByRole('button', { name: 'Add sub-note' }))
-    fireEvent.change(screen.getByLabelText('Note title'), { target: { value: 'Nested reference' } })
+    setNoteTitle('Nested reference')
     fireEvent.click(within(screen.getByRole('navigation', { name: 'Note location' })).getByRole('button', { name: 'Keep for later' }))
     fireEvent.click(screen.getByRole('button', { name: 'Delete current note and sub-notes' }))
     cached.personalNotes = JSON.parse(screen.getByLabelText('Saved notes').textContent ?? '[]')

@@ -1,4 +1,4 @@
-import { Fragment, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react'
+import { Fragment, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react'
 import { ArrowDown, ArrowUp, ChevronDown, ChevronLeft, ChevronRight, CornerDownRight, GripVertical, ListChecks, MoreHorizontal, Plus, Trash2, Undo2, X } from 'lucide-react'
 import type { useForgeboard } from '../hooks/useForgeboard'
 import { canMoveChecklistItem, deletedChecklistRoots, orderedChecklist } from '../lib/noteChecklist'
@@ -9,10 +9,13 @@ type Forge = ReturnType<typeof useForgeboard>
 type Direction = 'indent' | 'outdent' | 'up' | 'down'
 type Drag = { id: string; pointerId: number; startX: number; startY: number; x: number; y: number }
 
-export function NoteChecklist({ forge, note }: { forge: Forge; note: PersonalNote }) {
+export function NoteChecklist({ forge, note, autoFocus = false, focusItemId }: { forge: Forge; note: PersonalNote; autoFocus?: boolean; focusItemId?: string }) {
   const descriptionId = useId()
   const inputs = useRef(new Map<string, HTMLInputElement>())
   const pendingFocus = useRef<string | undefined>(undefined)
+  const initialFocusChecked = useRef(false)
+  const lastFocusRequest = useRef<string | undefined>(undefined)
+  const requestedFocus = useRef<string | undefined>(undefined)
   const drag = useRef<Drag | undefined>(undefined)
   const [dragging, setDragging] = useState<{ id: string; x: number }>()
   const [optionsId, setOptionsId] = useState<string>()
@@ -21,22 +24,45 @@ export function NoteChecklist({ forge, note }: { forge: Forge; note: PersonalNot
   const [notice, setNotice] = useState('')
   const [lastDeleted, setLastDeleted] = useState<{ id: string; text: string }>()
   const items = note.checklist ?? []
-  const rows = orderedChecklist(items)
-  const groups: (typeof rows)[] = []
-  for (const row of rows) {
-    if (row.depth === 0 || groups.length === 0) groups.push([])
-    groups[groups.length - 1].push(row)
-  }
+  const rows = useMemo(() => orderedChecklist(note.checklist ?? []), [note.checklist])
+  const groups = useMemo(() => {
+    const grouped: (typeof rows)[] = []
+    for (const row of rows) {
+      if (row.depth === 0 || grouped.length === 0) grouped.push([])
+      grouped[grouped.length - 1].push(row)
+    }
+    return grouped
+  }, [rows])
   const completed = rows.filter(({ item }) => item.completedAt).length
   const deleted = items.filter((item) => item.deletedAt)
   const deletedRoots = deletedChecklistRoots(items)
   const nameOf = (text: string) => text.trim() || 'New item'
 
+  // Consume each explicit request once. A requested row can arrive in the next
+  // workspace snapshot, but ordinary autosaves must never move the cursor back.
   useLayoutEffect(() => {
-    const id = pendingFocus.current
+    if (lastFocusRequest.current !== focusItemId) {
+      lastFocusRequest.current = focusItemId
+      requestedFocus.current = focusItemId
+    }
+    if (!initialFocusChecked.current) {
+      initialFocusChecked.current = true
+      if (autoFocus && !requestedFocus.current && !pendingFocus.current) pendingFocus.current = rows[0]?.item.id
+    }
+    const id = pendingFocus.current ?? requestedFocus.current
+    if (!id) return
+    const group = groups.find((group) => group.some(({ item }) => item.id === id))
+    if (group && group[0].item.id !== id && collapsedIds.has(group[0].item.id)) {
+      setCollapsedIds((current) => { const next = new Set(current); next.delete(group[0].item.id); return next })
+      return
+    }
     const input = id && inputs.current.get(id)
-    if (input) { input.focus(); pendingFocus.current = undefined }
-  }, [note.checklist])
+    if (input) {
+      input.focus()
+      if (pendingFocus.current === id) pendingFocus.current = undefined
+      if (requestedFocus.current === id) requestedFocus.current = undefined
+    }
+  }, [autoFocus, focusItemId, rows, groups, collapsedIds])
 
   function attempt(action: () => void) {
     try { action(); setError(''); return true }

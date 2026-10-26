@@ -17,18 +17,25 @@ vi.mock('../lib/db', () => ({
 beforeEach(() => { vi.stubGlobal('PointerEvent', MouseEvent) })
 afterEach(() => { cleanup(); cached = undefined; vi.unstubAllGlobals() })
 
-function Harness({ failAdd = false }: { failAdd?: boolean }) {
+type FocusProps = { autoFocus?: boolean; focusItemId?: string }
+
+function Harness({ failAdd = false, ...focus }: { failAdd?: boolean } & FocusProps) {
   const forge = useForgeboard()
   if (!forge.ready) return <p>Loading</p>
   const checklistForge = failAdd ? { ...forge, actions: { ...forge.actions, addNoteChecklistItem: () => { throw new Error('Could not add this item.') } } } : forge
-  return <><NoteChecklist forge={checklistForge} note={forge.workspace.personalNotes![0]} /><output aria-label="Saved checklist">{JSON.stringify(forge.workspace.personalNotes![0].checklist ?? [])}</output></>
+  return <><input aria-label="Capture draft" /><NoteChecklist forge={checklistForge} note={forge.workspace.personalNotes![0]} {...focus} /><output aria-label="Saved checklist">{JSON.stringify(forge.workspace.personalNotes![0].checklist ?? [])}</output></>
 }
 
-async function start(items: NoteChecklistItem[] = [], failAdd = false) {
+async function start(items: NoteChecklistItem[] = [], failAdd = false, focus: FocusProps = {}) {
   cached = createSeedWorkspace()
   cached.personalNotes = [{ id: 'note', title: 'Daily notes', body: 'Keep the original writing.', checklist: items, createdAt: '2026-10-21T12:00:00Z', updatedAt: '2026-10-21T12:00:00Z' }]
-  render(<Harness failAdd={failAdd} />)
+  const view = render(<Harness failAdd={failAdd} {...focus} />)
   await screen.findByRole('button', { name: /Add (first )?main item/ })
+  return view
+}
+
+function checklistItem(id: string, text: string, parentId?: string, order = 0): NoteChecklistItem {
+  return { id, text, parentId, order, createdAt: '2026-10-26T12:00:00Z', updatedAt: '2026-10-26T12:00:00Z' }
 }
 
 function saved(): NoteChecklistItem[] { return JSON.parse(screen.getByLabelText('Saved checklist').textContent ?? '[]') }
@@ -41,6 +48,91 @@ function addText(text: string) {
 function options(text: string) { fireEvent.click(screen.getByRole('button', { name: `Options for ${text}` })) }
 
 describe('Note checklist', () => {
+  it('autofocuses the first active item only once and leaves the current cursor alone on autosaves', async () => {
+    const view = await start([checklistItem('first', 'Tuesday'), checklistItem('second', 'Wednesday', undefined, 1)], false, { autoFocus: true })
+    expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'Edit Tuesday' }))
+    const second = screen.getByRole('textbox', { name: 'Edit Wednesday' }) as HTMLInputElement
+    second.focus()
+    second.setSelectionRange(3, 3)
+    view.rerender(<Harness autoFocus />)
+    expect(document.activeElement).toBe(second)
+    expect(second.selectionStart).toBe(3)
+    fireEvent.change(second, { target: { value: 'Wednesday plan' } })
+    expect(document.activeElement).toBe(second)
+    expect(screen.getByRole('textbox', { name: 'Edit Wednesday plan' })).toBe(second)
+    const capture = screen.getByRole('textbox', { name: 'Capture draft' }) as HTMLInputElement
+    capture.focus()
+    fireEvent.change(capture, { target: { value: 'Still writing my next thought' } })
+    capture.setSelectionRange(8, 8)
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Tuesday' }))
+    expect(document.activeElement).toBe(capture)
+    expect(capture.selectionStart).toBe(8)
+  })
+
+  it('does not focus by default or turn a later autoFocus change into a focus request', async () => {
+    const view = await start([checklistItem('first', 'Tuesday')])
+    expect(document.activeElement).not.toBe(screen.getByRole('textbox', { name: 'Edit Tuesday' }))
+    const capture = screen.getByRole('textbox', { name: 'Capture draft' })
+    capture.focus()
+    view.rerender(<Harness autoFocus />)
+    expect(document.activeElement).toBe(capture)
+  })
+
+  it('does not steal capture focus when an initially empty autofocus checklist gains an item', async () => {
+    const view = await start([], false, { autoFocus: true })
+    const capture = screen.getByRole('textbox', { name: 'Capture draft' })
+    capture.focus()
+    view.rerender(<Harness autoFocus focusItemId="not-yet-present" />)
+    expect(document.activeElement).toBe(capture)
+    fireEvent.click(screen.getByRole('button', { name: 'Add first main item' }))
+    const first = screen.getByRole('textbox', { name: 'Edit New item' })
+    expect(document.activeElement).toBe(first)
+    capture.focus()
+    fireEvent.change(first, { target: { value: 'Tuesday' } })
+    expect(document.activeElement).toBe(capture)
+  })
+
+  it('focuses a requested item once, expands its collapsed group, and supports a changed request', async () => {
+    const view = await start([checklistItem('root', 'Tuesday'), checklistItem('child', 'Groceries', 'root'), checklistItem('deep', 'Milk', 'child')])
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse Tuesday list' }))
+    expect(screen.queryByRole('textbox', { name: 'Edit Milk' })).toBeNull()
+    view.rerender(<Harness focusItemId="deep" />)
+    const deep = screen.getByRole('textbox', { name: 'Edit Milk' }) as HTMLInputElement
+    expect(document.activeElement).toBe(deep)
+    expect(screen.getByRole('button', { name: 'Collapse Tuesday list' }).getAttribute('aria-expanded')).toBe('true')
+    deep.setSelectionRange(2, 2)
+    fireEvent.change(deep, { target: { value: 'Milky coffee' } })
+    expect(document.activeElement).toBe(deep)
+    const capture = screen.getByRole('textbox', { name: 'Capture draft' })
+    capture.focus()
+    view.rerender(<Harness focusItemId="deep" />)
+    expect(document.activeElement).toBe(capture)
+    view.rerender(<Harness focusItemId="child" />)
+    expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'Edit Groceries' }))
+    view.rerender(<Harness focusItemId="deep" />)
+    expect(document.activeElement).toBe(deep)
+  })
+
+  it('keeps a missing requested ID pending until its row arrives in a later snapshot', async () => {
+    cached = createSeedWorkspace()
+    cached.personalNotes = [{ id: 'note', title: 'Daily notes', body: '', checklist: [], createdAt: '2026-10-26T12:00:00Z', updatedAt: '2026-10-26T12:00:00Z' }]
+    function SnapshotHarness({ items }: { items: NoteChecklistItem[] }) {
+      const forge = useForgeboard()
+      if (!forge.ready) return <p>Loading</p>
+      return <><input aria-label="Capture draft" /><NoteChecklist forge={forge} note={{ ...forge.workspace.personalNotes![0], checklist: items }} focusItemId="arriving" /></>
+    }
+    const view = render(<SnapshotHarness items={[]} />)
+    const capture = await screen.findByRole('textbox', { name: 'Capture draft' })
+    capture.focus()
+    expect(document.activeElement).toBe(capture)
+    view.rerender(<SnapshotHarness items={[checklistItem('arriving', 'Next blank row')]} />)
+    const arriving = screen.getByRole('textbox', { name: 'Edit Next blank row' })
+    expect(document.activeElement).toBe(arriving)
+    capture.focus()
+    view.rerender(<SnapshotHarness items={[checklistItem('arriving', 'Updated next row')]} />)
+    expect(document.activeElement).toBe(capture)
+  })
+
   it('adds sub-items and sub-sub-items with independent checkboxes and immediate saves', async () => {
     await start()
     addText('Tuesday')

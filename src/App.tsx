@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react'
 import {
   AlertTriangle, Bell, Bot, Bug, Check, ChevronDown, ChevronRight, Clock3, FileText, Flag,
   FolderKanban, Image, Inbox, LayoutDashboard, Lightbulb, ListTodo, Menu,
@@ -201,7 +201,9 @@ function ShortcutsModal({ onClose }: { onClose: () => void }) { return <Modal ti
 function App() {
   const forge = useForgeboard()
   const display = useAppScale()
-  const [view, setView] = useState<View>({ type: 'overview' })
+  const [view, setViewState] = useState<View>({ type: 'overview' })
+  const [notesCaptureBlocked, setNotesCaptureBlocked] = useState(false)
+  const setView = useCallback((next: View) => { if (!notesCaptureBlocked) setViewState(next) }, [notesCaptureBlocked])
   const [modal, setModal] = useState<ModalName>(null)
   const [taskBoard, setTaskBoard] = useState<BoardKey | undefined>()
   const [rescheduleTask, setRescheduleTask] = useState<Task | undefined>()
@@ -247,7 +249,7 @@ function App() {
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [forge.actions, modal])
+  }, [forge.actions, modal, setView])
   useEffect(() => {
     if (!toast) return
     const timer = window.setTimeout(() => setToast(''), 3000)
@@ -310,7 +312,7 @@ function App() {
         {view.type === 'overview' && <GlobalView forge={forge} onProject={(id) => navigate({ type: 'project', projectId: id })} onTask={() => openTaskModal()} onDeadline={() => setModal('deadline')} onReschedule={openReschedule} />}
         {view.type === 'project' && <ProjectView key={view.projectId} forge={forge} projectId={view.projectId} onTask={openTaskModal} onDeadline={() => setModal('deadline')} onReschedule={openReschedule} onNotes={() => { setNotesQuery(''); navigate({ type: 'notes', projectId: view.projectId }) }} />}
         {view.type === 'reports' && <ReportsView forge={forge} />}
-        {view.type === 'notes' && <PersonalNotes forge={forge} onAddProject={() => setModal('project')} initialProjectId={view.projectId} onProjectChange={(projectId) => navigate({ type: 'notes', projectId })} searchQuery={notesQuery} onSearchQueryChange={setNotesQuery} />}
+        {view.type === 'notes' && <PersonalNotes forge={forge} onAddProject={() => setModal('project')} initialProjectId={view.projectId} onProjectChange={(projectId) => navigate({ type: 'notes', projectId })} searchQuery={notesQuery} onSearchQueryChange={setNotesQuery} onCaptureBlockedChange={setNotesCaptureBlocked} />}
         {view.type === 'notifications' && <NotificationCenter items={updates} unreadIds={unreadIds} projects={forge.workspace.projects} onRead={markNotificationsRead} onOpen={openUpdate} />}
       </div>
     </main>
