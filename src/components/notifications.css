@@ -24,7 +24,7 @@
 .notification-empty { display: grid; justify-items: center; padding: 42px 22px; border: 1px dashed var(--line); border-radius: 14px; text-align: center; color: var(--muted); }
 .notification-empty h2 { margin: 15px 0 3px; color: var(--text); font-size: 18px; }
 .notification-empty p { max-width: 500px; font-size: 13px; line-height: 1.7; }
-.activity-toast-stack { position: fixed; z-index: 65; bottom: 22px; left: 266px; display: grid; gap: 10px; width: min(405px, calc(100vw - 288px)); pointer-events: none; }
+.activity-toast-stack { position: fixed; z-index: 65; bottom: 22px; left: 266px; display: grid; gap: 10px; width: min(405px, calc(var(--app-viewport-width) - 288px)); pointer-events: none; }
 .activity-toast { pointer-events: auto; display: flex; align-items: flex-start; gap: 10px; padding: 15px 12px 14px 15px; background: #1b293b; border: 1px solid #627e9c; border-radius: 13px; box-shadow: 0 10px 32px #0008; animation: activity-toast-in .2s ease-out; }
 .activity-toast-copy { min-width: 0; flex: 1; }
 .activity-toast-copy > small { color: var(--teal); font-size: 10px; line-height: 1.5; }
@@ -40,7 +40,7 @@
   .notification-item-actions > button { min-height: 44px; }
   .notification-next { grid-template-columns: 1fr; gap: 2px; }
   .notification-next dd + dt { margin-top: 7px; }
-  .activity-toast-stack { bottom: calc(76px + env(safe-area-inset-bottom)); left: 12px; width: calc(100vw - 24px); }
+  .activity-toast-stack { bottom: calc(76px + env(safe-area-inset-bottom)); left: 12px; width: calc(var(--app-viewport-width) - 24px); }
   .activity-toast { padding: 13px 10px 11px 12px; }
   .activity-toast-close { width: 44px; height: 44px; flex-basis: 44px; }
   .activity-toast-copy > button { min-height: 44px; }

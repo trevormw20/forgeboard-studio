@@ -60,6 +60,15 @@ export async function clearConnection(): Promise<void> {
   await (await dbPromise).delete('state', 'connection')
 }
 
+// Display preferences belong to this browser, not the shared planner workspace.
+export async function loadAppScale(): Promise<unknown> {
+  return (await dbPromise).get('state', 'appScale')
+}
+
+export async function saveAppScale(scale: number): Promise<void> {
+  await (await dbPromise).put('state', scale, 'appScale')
+}
+
 export async function loadSha(): Promise<string | undefined> {
   return (await (await dbPromise).get('state', 'sha')) as string | undefined
 }

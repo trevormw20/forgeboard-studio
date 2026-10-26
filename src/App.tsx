@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react'
 import {
   AlertTriangle, Bell, Bot, Bug, Check, ChevronDown, ChevronRight, Clock3, FileText, Flag,
-  FolderKanban, Image, Inbox, Keyboard, LayoutDashboard, Lightbulb, ListTodo, Menu,
+  FolderKanban, Image, Inbox, LayoutDashboard, Lightbulb, ListTodo, Menu,
   MessageSquareText, NotebookPen, Palette, Plus, RefreshCw, Repeat2, Search, Settings, Sparkles, Wifi, WifiOff, X,
 } from 'lucide-react'
 import { useForgeboard } from './hooks/useForgeboard'
+import { useAppScale } from './hooks/useAppScale'
+import { DisplaySettings } from './components/DisplaySettings'
 import { ManagerDashboard, ReviewPanel, type ManagerSection } from './components/ManagerDashboard'
 import { PersonalNotes } from './components/PersonalNotes'
 import { ActivityToastStack, NotificationCenter } from './components/NotificationCenter'
@@ -18,7 +20,7 @@ import { BOARD_DEFINITIONS, type BoardKey, type ConnectionConfig, type Project, 
 import './App.css'
 
 type View = { type: 'overview' } | { type: 'project'; projectId: string } | { type: 'reports' } | { type: 'notes'; projectId?: string } | { type: 'notifications' }
-type ModalName = 'capture' | 'project' | 'task' | 'deadline' | 'settings' | 'shortcuts' | 'reschedule' | null
+type ModalName = 'capture' | 'project' | 'task' | 'deadline' | 'settings' | 'connection' | 'shortcuts' | 'reschedule' | null
 
 const boardIcons: Record<BoardKey, typeof Bug> = { bugs: Bug, aiTodo: Bot, myTodo: ListTodo, ideas: Lightbulb, playtest: MessageSquareText, assets: Image }
 const stages = [['prototype', 'Prototype'], ['in-development', 'In development'], ['polish', 'Polish'], ['submitted', 'Submitted'], ['released', 'Released']] as const
@@ -184,7 +186,7 @@ function DeadlineModal({ forge, activeProjectId, onClose }: { forge: ReturnType<
   return <Modal title="Add deadline" description="External deadlines generate a complete submission checklist with a review buffer." onClose={onClose}><form className="modal-form" onSubmit={submit}><label>Deadline name<input autoFocus required value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Steam festival submission" /></label><div className="form-grid"><label>Project<select value={projectId} onChange={(event) => setProjectId(event.target.value)}>{projects.map((project) => <option key={project.id} value={project.id}>{project.icon} {project.name}</option>)}</select></label><label>Date and time<input required type="datetime-local" value={dueAt} onChange={(event) => setDueAt(event.target.value)} /></label></div><div className="switch-list"><label><input type="checkbox" checked={hard} onChange={(event) => setHard(event.target.checked)} /><span><strong>Hard deadline</strong><small>Missing this date has an external consequence.</small></span></label><label><input type="checkbox" checked={external} onChange={(event) => setExternal(event.target.checked)} /><span><strong>External submission</strong><small>Add store, build, art, trailer, rating, pricing, and review-buffer tasks.</small></span></label></div><div className="form-footer"><button className="primary-button" type="submit">Pin deadline</button></div></form></Modal>
 }
 
-function SettingsModal({ forge, onClose }: { forge: ReturnType<typeof useForgeboard>; onClose: () => void }) {
+function ConnectionModal({ forge, onClose }: { forge: ReturnType<typeof useForgeboard>; onClose: () => void }) {
   const [config, setConfig] = useState<ConnectionConfig>(forge.connection); const [testing, setTesting] = useState(false); const [message, setMessage] = useState('')
   const submit = async (event: FormEvent) => { event.preventDefault(); setTesting(true); setMessage(''); const okay = await forge.actions.updateConnection(config); setTesting(false); setMessage(okay ? 'Connected. The private workspace is synced.' : 'Connection failed. Check the message below and the six repository settings.') }
   return <Modal wide title="Private GitHub data vault" description="The public app contains no planner data or secrets. Each browser connects directly to one private JSON workspace." onClose={onClose}><form className="modal-form" onSubmit={submit}><div className="security-callout"><Wifi size={18} /><div><strong>Use a fine-grained personal access token</strong><p>Limit it to <em>only</em> the private vault repository with Contents → Read and write. Never paste it into chat or commit it.</p></div></div><div className="form-grid"><label>GitHub owner<input required autoComplete="username" value={config.owner} onChange={(event) => setConfig({ ...config, owner: event.target.value.trim() })} placeholder="your-github-name" /></label><label>Private repository<input required value={config.repo} onChange={(event) => setConfig({ ...config, repo: event.target.value.trim() })} /></label><label>Branch<input required value={config.branch} onChange={(event) => setConfig({ ...config, branch: event.target.value.trim() })} /></label><label>Workspace path<input required value={config.path} onChange={(event) => setConfig({ ...config, path: event.target.value.trim() })} /></label></div><label>Fine-grained personal access token<input required type="password" autoComplete="off" value={config.token} onChange={(event) => setConfig({ ...config, token: event.target.value })} placeholder="github_pat_…" /></label><label className="remember-token"><input type="checkbox" checked={config.rememberToken} onChange={(event) => setConfig({ ...config, rememberToken: event.target.checked })} /><span><strong>Remember token on this device</strong><small>Off is safer on shared devices. When off, the token lasts until this page session ends.</small></span></label>{message && <p className={forge.syncMeta.lastError ? 'form-error' : 'form-success'}>{forge.syncMeta.lastError ?? message}</p>}<div className="repo-checklist"><strong>If the workspace is not found, verify:</strong><ol><li>Owner and private repository name</li><li>Branch is <code>main</code></li><li>Path is <code>data/workspace.json</code></li><li>The token can access this repository</li><li>Contents permission is Read and write</li><li>The workspace file exists</li></ol></div><div className="form-footer"><button type="button" className="text-button danger-text" onClick={() => void forge.actions.disconnect()}>Forget connection</button><button className="primary-button" type="submit" disabled={testing}>{testing ? <RefreshCw size={17} className="spin" /> : <Wifi size={17} />}{testing ? 'Connecting…' : 'Save and test'}</button></div></form></Modal>
@@ -198,6 +200,7 @@ function ShortcutsModal({ onClose }: { onClose: () => void }) { return <Modal ti
 
 function App() {
   const forge = useForgeboard()
+  const display = useAppScale()
   const [view, setView] = useState<View>({ type: 'overview' })
   const [modal, setModal] = useState<ModalName>(null)
   const [taskBoard, setTaskBoard] = useState<BoardKey | undefined>()
@@ -227,7 +230,7 @@ function App() {
     dismissAllToasts()
   }, [view.type, notificationsReady, unreadIds, markNotificationsRead, dismissAllToasts])
   useEffect(() => {
-    const openSettings = () => setModal('settings')
+    const openSettings = () => setModal('connection')
     window.addEventListener('forgeboard:settings', openSettings)
     return () => window.removeEventListener('forgeboard:settings', openSettings)
   }, [])
@@ -287,7 +290,7 @@ function App() {
       </form>
       <div className="nav-section-title"><span>Project boards</span><button type="button" onClick={() => setModal('project')} aria-label="Add project"><Plus size={16} /></button></div>
       <nav className="project-nav" aria-label="Projects">{forge.workspace.projects.filter((project) => !project.deletedAt).map((project) => <button type="button" key={project.id} aria-current={view.type === 'project' && view.projectId === project.id ? 'page' : undefined} className={view.type === 'project' && view.projectId === project.id ? 'active' : ''} onClick={() => navigate({ type: 'project', projectId: project.id })}><span className="nav-project-icon" style={{ background: `${project.color}22`, color: project.color }}>{project.icon}</span><span>{project.name}</span><small>{forge.workspace.tasks.filter((task) => task.projectId === project.id && !task.completedAt && !task.deletedAt).length}</small></button>)}</nav>
-      <div className="sidebar-bottom"><button type="button" onClick={() => setModal('shortcuts')}><Keyboard size={17} />Shortcuts <kbd>?</kbd></button><button type="button" onClick={() => setModal('settings')}><Settings size={17} />Data connection</button></div>
+      <div className="sidebar-bottom"><button type="button" onClick={() => { setMobileNav(false); setModal('settings') }}><Settings size={17} />Settings<span className="sidebar-scale" aria-hidden="true">{display.scale}%</span></button></div>
     </aside>
     {mobileNav && <button type="button" className="nav-scrim" aria-label="Close navigation" onClick={() => setMobileNav(false)} />}
     <main className="main-area">
@@ -297,12 +300,12 @@ function App() {
         <div className="topbar-actions">
           <span className={`sync-state ${forge.syncMeta.online ? '' : 'offline'}`}>{forge.syncMeta.online ? <Wifi size={14} /> : <WifiOff size={14} />}{syncLabel}</span>
           <button className={`notification-bell icon-button ${unreadIds.size ? 'has-unread' : ''}`} type="button" aria-label={`Notifications, ${unreadIds.size} unread`} onClick={() => navigate({ type: 'notifications' })}><Bell size={18} />{unreadIds.size > 0 && <span>{unreadIds.size > 99 ? '99+' : unreadIds.size}</span>}</button>
-          <button className="sync-button" type="button" onClick={() => void forge.actions.syncNow()} disabled={forge.syncMeta.syncing} title="Sync now (S)" aria-label="Sync now"><RefreshCw size={17} className={forge.syncMeta.syncing ? 'spin' : ''} /><span>Sync now</span></button>
-          <button className="capture-button" type="button" onClick={() => setModal('capture')} aria-label="Quick capture"><Inbox size={17} /><span>Quick capture</span><kbd>Q</kbd></button>
+          <button className="sync-button" type="button" onClick={() => void forge.actions.syncNow()} disabled={forge.syncMeta.syncing} title="Sync now (S)" aria-label="Sync now"><RefreshCw size={15} className={forge.syncMeta.syncing ? 'spin' : ''} /></button>
+          <button className="capture-button" type="button" onClick={() => setModal('capture')} aria-label="Quick capture" title="Quick capture (Q)"><Inbox size={15} /><span>Capture</span></button>
         </div>
       </header>
       {forge.localSave.error && view.type !== 'notes' && <div className="sync-error" role="alert"><AlertTriangle size={16} /><span>Your latest edits could not be saved on this device. Keep this tab open.</span><button type="button" onClick={() => { void forge.actions.flushLocalSaves().catch(() => {}) }}>Retry save</button></div>}
-      {forge.syncMeta.lastError && <div className="sync-error"><AlertTriangle size={16} /><span>{forge.syncMeta.lastError}</span><button type="button" onClick={() => setModal('settings')}>Check connection</button></div>}
+      {forge.syncMeta.lastError && <div className="sync-error"><AlertTriangle size={16} /><span>{forge.syncMeta.lastError}</span><button type="button" onClick={() => setModal('connection')}>Check connection</button></div>}
       <div className="content-wrap">
         {view.type === 'overview' && <GlobalView forge={forge} onProject={(id) => navigate({ type: 'project', projectId: id })} onTask={() => openTaskModal()} onDeadline={() => setModal('deadline')} onReschedule={openReschedule} />}
         {view.type === 'project' && <ProjectView key={view.projectId} forge={forge} projectId={view.projectId} onTask={openTaskModal} onDeadline={() => setModal('deadline')} onReschedule={openReschedule} onNotes={() => { setNotesQuery(''); navigate({ type: 'notes', projectId: view.projectId }) }} />}
@@ -323,7 +326,8 @@ function App() {
     {modal === 'project' && <ProjectModal forge={forge} onClose={() => setModal(null)} onCreated={(id) => navigate({ type: view.type === 'notes' ? 'notes' : 'project', projectId: id })} />}
     {modal === 'task' && <TaskModal forge={forge} activeProjectId={activeProjectId} initialBoard={taskBoard} onClose={() => setModal(null)} />}
     {modal === 'deadline' && <DeadlineModal forge={forge} activeProjectId={activeProjectId} onClose={() => setModal(null)} />}
-    {modal === 'settings' && <SettingsModal forge={forge} onClose={() => setModal(null)} />}
+    {modal === 'settings' && <Modal title="Settings" description="A comfortable display and a quieter workspace." onClose={() => setModal(null)}><div className="settings-body"><DisplaySettings scale={display.scale} onScaleChange={display.setScale} loading={display.loading} saveError={display.saveError} onOpenConnection={() => setModal('connection')} onOpenShortcuts={() => setModal('shortcuts')} /></div></Modal>}
+    {modal === 'connection' && <ConnectionModal forge={forge} onClose={() => setModal(null)} />}
     {modal === 'shortcuts' && <ShortcutsModal onClose={() => setModal(null)} />}
     {modal === 'reschedule' && rescheduleTask && <RescheduleModal forge={forge} task={rescheduleTask} onClose={() => { setModal(null); setRescheduleTask(undefined) }} />}
     {toast && <div className="toast"><Check size={16} />{toast}</div>}

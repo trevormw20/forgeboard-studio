@@ -10,6 +10,12 @@ If the Claude key is not scoped to one workspace, also add private Actions secre
 
 Forgeboard is a deadline-first, mobile-first game development planner. The public app is a static installable PWA. Planner state lives in one JSON file in a separate private GitHub repository and syncs through the GitHub Contents API.
 
+## Display and settings
+
+Open **Settings** at the bottom of the sidebar (inside the navigation menu on a phone). **App scale** changes the whole interface immediately from 60–125%, with 75%, 85%, and 100% presets. Try 75% or 85% on a monitor using Windows 175% scaling. The preference is remembered in this browser's device cache only; it does not change Windows, browser zoom, or another connected device. Reset returns it to 100%. Notes stay open while adjusting it.
+
+**Data connection** and **Keyboard shortcuts** are inside Settings. The compact header keeps the sync icon and **Capture**; their **S** and **Q** shortcuts still work, and **?** opens the shortcut list. Phone controls retain larger touch targets.
+
 ## Personal Notes
 
 Android users can also install the native **Forgeboard Notes** companion with real home-screen widgets. It shares this app's private GitHub vault and opens a notes-only editor. [Download and Android setup](android/README.md).
@@ -46,7 +52,7 @@ Other chats can leave separate `forgeboard-task` JSON files in `data/task-inbox/
 
 ## Connect a device
 
-1. Open the deployed Pages app and choose **Data connection**.
+1. Open the deployed Pages app and choose **Settings → Data connection**.
 2. Enter owner `trevormw20`, repository `forgeboard-studio-vault`, branch `main`, and path `data/workspace.json`.
 3. Create a fine-grained GitHub personal access token. Select only the private vault repository and grant **Contents → Read and write**.
 4. Enter the token directly in the app. Do not paste it into chat or commit it.

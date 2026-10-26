@@ -7,11 +7,42 @@ vi.mock('./lib/db', () => ({
   loadCachedWorkspace: async () => undefined, loadConnection: async () => undefined, loadBaseWorkspace: async () => undefined,
   countMutations: async () => 0, mutationIds: async () => [], saveWorkspaceChanges: async () => {}, clearMutations: async () => {},
   saveConnection: async () => {}, saveBaseWorkspace: async () => {}, saveSha: async () => {}, clearConnection: async () => {},
+  loadAppScale: async () => undefined, saveAppScale: async () => {},
 }))
 beforeEach(() => { vi.stubGlobal('scrollTo', vi.fn()) })
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
 describe('organized workspace navigation', () => {
+  it('keeps connection and shortcuts inside Settings, with live app scaling and compact header actions', async () => {
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Next up' })
+    expect(screen.queryByRole('button', { name: 'Data connection' })).toBeNull()
+    expect(screen.queryByRole('button', { name: /Shortcuts/ })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
+    const settings = screen.getByRole('dialog', { name: 'Settings' })
+    fireEvent.click(within(settings).getByRole('button', { name: '75% Compact' }))
+    expect(document.documentElement.style.getPropertyValue('zoom')).toBe('0.75')
+    expect(screen.getByRole('heading', { name: 'Next up' })).toBeTruthy()
+    fireEvent.click(within(settings).getByRole('button', { name: /Data connection/ }))
+    expect(screen.getByRole('dialog', { name: 'Private GitHub data vault' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
+    fireEvent.click(screen.getByRole('button', { name: /Keyboard shortcuts/ }))
+    expect(screen.getByRole('dialog', { name: 'Keyboard shortcuts' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    expect(screen.getByRole('button', { name: 'Sync now' }).textContent).toBe('')
+    expect(screen.getByRole('button', { name: 'Quick capture' }).textContent).toBe('Capture')
+    fireEvent.keyDown(document.body, { key: '?' })
+    expect(screen.getByRole('dialog', { name: 'Keyboard shortcuts' })).toBeTruthy()
+  })
+
+  it('keeps connection onboarding opening the vault directly', async () => {
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Next up' })
+    fireEvent(window, new Event('forgeboard:settings'))
+    expect(screen.getByRole('dialog', { name: 'Private GitHub data vault' })).toBeTruthy()
+  })
+
   it('shows one top panel at a time and keeps the deadline visible', async () => {
     render(<App />)
     await screen.findByRole('heading', { name: 'Next up' })

@@ -30,6 +30,7 @@ vi.mock('./lib/db', () => ({
   clearMutations: async (ids: string[]) => { ids.forEach((id) => memory.mutations.delete(id)) },
   saveBaseWorkspace: async (workspace: Workspace) => { memory.base = structuredClone(workspace) },
   saveSha: async () => {}, saveConnection: async () => {}, clearConnection: async () => {},
+  loadAppScale: async () => undefined, saveAppScale: async () => {},
 }))
 vi.mock('./lib/github', async (original) => ({
   ...await original<object>(), fetchWorkspace: vi.fn(), putWorkspace: vi.fn(), fetchTaskInbox: async () => [],
