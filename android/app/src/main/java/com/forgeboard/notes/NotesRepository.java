@@ -17,6 +17,9 @@ import com.forgeboard.notes.core.StaticWorkspaceMerger;
 public final class NotesRepository {
     public static final String ACTION_CHANGED="com.forgeboard.notes.CHANGED";
     private static NotesRepository instance;
+    private static NotesRepository sharedInstance;
+    public static final String EXTRA_VAULT="notesVault";
+    private final boolean shared;
     public interface Callback { void onComplete(String error); }
     public interface Edit { void apply(JSONObject workspace) throws Exception; }
     private final Context context;
@@ -27,16 +30,21 @@ public final class NotesRepository {
     private String loadError;
     private boolean syncing;
     private long revision;
-    private NotesRepository(Context context){
-        this.context=context.getApplicationContext();store=new SecureStore(this.context);
+    private NotesRepository(Context context,boolean shared){
+        this.shared=shared;
+        this.context=context.getApplicationContext();store=new SecureStore(this.context,shared?"notes-shared-v1":"notes-v1");
         try{state=store.read();if(state==null)state=new JSONObject().put("workspace",NotesCore.emptyWorkspace()).put("dirty",false);}
         catch(Exception e){loadError="The encrypted offline cache could not be unlocked. It has been preserved; do not uninstall or clear app data. Contact support before reconnecting.";state=new JSONObject();}
         NotesSyncJobService.schedulePeriodic(this.context);
     }
-    public static synchronized NotesRepository get(Context context){if(instance==null)instance=new NotesRepository(context);return instance;}
+    public static synchronized NotesRepository get(Context context){return get(context,false);}
+    public static synchronized NotesRepository get(Context context,boolean shared){if(shared){if(sharedInstance==null)sharedInstance=new NotesRepository(context,true);return sharedInstance;}if(instance==null)instance=new NotesRepository(context,false);return instance;}
+    public static NotesRepository forIntent(Context context,Intent intent){return get(context,"shared".equals(intent.getStringExtra(EXTRA_VAULT)));}
+    public Intent target(Intent intent){return intent.putExtra(EXTRA_VAULT,shared?"shared":"personal");}
+    public boolean isShared(){return shared;}
     private static JSONObject copy(JSONObject value){try{return new JSONObject(value.toString());}catch(Exception e){throw new IllegalStateException("Could not read saved data.");}}
     public synchronized JSONObject snapshot(){JSONObject ws=state.optJSONObject("workspace");return ws==null?NotesCore.emptyWorkspace():copy(ws);}
-    public synchronized VaultConfig config(){return VaultConfig.from(state.optJSONObject("connection"));}
+    public synchronized VaultConfig config(){return state.optJSONObject("connection")==null?VaultConfig.defaults(shared):VaultConfig.from(state.optJSONObject("connection"));}
     public synchronized boolean isConnected(){return loadError==null&&!config().token.isEmpty();}
     public synchronized boolean hasPendingWrites(){return state.optBoolean("dirty");}
     public synchronized boolean isSyncing(){return syncing;}
@@ -59,6 +67,10 @@ public final class NotesRepository {
     }
     private void checkCache()throws IOException{if(loadError!=null)throw new IOException(loadError);}
     public void connect(VaultConfig candidate,Callback callback){
+        // Profile separation is backed by distinct repositories, not a cosmetic filter.
+        if(shared || BuildConfig.NIKI_PROFILE) {
+            if(!candidate.identity().equals(VaultConfig.defaults(shared).identity())) { complete(callback,"This profile connects only to its own private notes vault. Use the separate Shared lists connection for shared notes."); return; }
+        } else if(candidate.identity().equals(VaultConfig.defaults(true).identity())) { complete(callback,"Open Shared lists to connect this repository. Your private notes stay in their own cache."); return; }
         synchronized(this){if(syncing){complete(callback,"A sync is already running. Please try again in a moment.");return;}syncing=true;}changed();
         io.execute(()->{String error=null;try{
             candidate.validate();VaultClient client=new VaultClient(candidate);client.requirePrivate();VaultClient.Remote remote=client.read();

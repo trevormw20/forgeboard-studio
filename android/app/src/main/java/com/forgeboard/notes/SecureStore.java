@@ -14,7 +14,11 @@ import org.json.JSONObject;
 /** Token, remote base and durable offline outbox share one encrypted atomic transaction. */
 final class SecureStore {
     private final AtomicFile file;
-    SecureStore(Context context) { file=new AtomicFile(new File(context.getNoBackupFilesDir(),"notes-v1.enc")); }
+    SecureStore(Context context) { this(context,"notes-v1"); }
+    SecureStore(Context context,String name) {
+        if(!name.matches("[a-z0-9-]+")) throw new IllegalArgumentException("Invalid cache name");
+        file=new AtomicFile(new File(context.getNoBackupFilesDir(),name+".enc"));
+    }
     private javax.crypto.SecretKey key() throws Exception {
         KeyStore store=KeyStore.getInstance("AndroidKeyStore"); store.load(null);
         String alias="forgeboard_notes_v1";

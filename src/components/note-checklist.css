@@ -40,6 +40,9 @@
 .nc-actions > button:hover:not(:disabled) { background: #abb5ce14; color: #f0f3fa; }
 .nc-actions > button:disabled { opacity: .35; cursor: not-allowed; }
 .nc-actions > .nc-delete { color: #dbacb9; margin-left: auto; }
+.nc-group-add { padding-left: max(0px, calc(var(--add-depth) * 18px)); }
+.nc-group-add > button { display: grid; place-items: center; width: 36px; height: 36px; margin: 0 0 3px; border: 0; border-radius: 7px; background: transparent; color: #8fa9b5; }
+.nc-group-add > button:hover, .nc-group-add > button:focus-visible { background: #8dcabb14; color: #c4e8de; }
 .nc-add-main { display: flex; align-items: center; gap: 7px; min-height: 44px; min-width: 44px; padding: 8px 11px; border-radius: 8px; font-size: 12px !important; text-align: left; width: 100%; margin: 8px 0 0; border: 1px dashed #3b4b63; background: transparent; color: #abc9cf; }
 .nc-add-main:hover, .nc-add-main:focus-visible { border-color: #8dcabb; background: #8dcabb0a; color: #c4e8de; }
 .nc-add-main > svg { flex: 0 0 auto; }
@@ -53,6 +56,8 @@
 .nc-trash > div { display: flex; align-items: center; justify-content: space-between; gap: 8px; border-top: 1px solid #abb5ce15; }
 .nc-trash > div > span { overflow-wrap: anywhere; color: #b9c6d9; font-size: 11px; min-width: 0; }
 @media (max-width: 600px) {
+  .nc-group-add { padding-left: max(0px, calc(var(--add-depth) * 14px)); }
+  .nc-group-add > button { width: 44px; height: 44px; }
   .nc-item { margin-inline-start: calc(min(var(--check-depth), 3) * 14px); }
   .nc-drop-marker { left: calc((min(var(--drop-depth), 3) - min(var(--check-depth), 3)) * 14px + 5px); }
   .nc-grip { width: 44px; }

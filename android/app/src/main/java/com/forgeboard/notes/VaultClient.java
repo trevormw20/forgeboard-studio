@@ -26,6 +26,23 @@ final class VaultClient {
         JSONObject body=new JSONObject().put("message","[skip ai] Sync Forgeboard Android notes").put("branch",config.branch).put("sha",sha).put("content",Base64.encodeToString(workspace.toString(2).getBytes(StandardCharsets.UTF_8),Base64.NO_WRAP));
         request("PUT",contents(),body);
     }
+    private String voicePath(String folder,String id) {
+        if(!id.matches("[a-f0-9-]{36}"))throw new IllegalArgumentException("Invalid voice request ID.");
+        return repo()+"/contents/data/"+folder+"/"+id+".json";
+    }
+    private JSONObject voiceFile(String folder,String id) throws Exception {
+        JSONObject file=request("GET",voicePath(folder,id)+"?ref="+enc(config.branch),null);
+        if(!"base64".equals(file.optString("encoding")))throw new IOException("Invalid voice result.");
+        String content=file.optString("content"); if(content.length()>200000)throw new IOException("Voice result too large.");
+        return new JSONObject(new String(Base64.decode(content,Base64.DEFAULT),StandardCharsets.UTF_8));
+    }
+    void enqueueVoice(JSONObject job) throws Exception {
+        requirePrivate(); String id=job.getString("id");
+        JSONObject body=new JSONObject().put("message","Organize reviewed voice draft").put("branch",config.branch).put("content",Base64.encodeToString(job.toString(2).getBytes(StandardCharsets.UTF_8),Base64.NO_WRAP));
+        try{request("PUT",voicePath("voice-inbox",id),body);}
+        catch(Failure conflict){if(conflict.status!=409&&conflict.status!=422)throw conflict; JSONObject old=voiceFile("voice-inbox",id);if(!old.optString("transcript").equals(job.getString("transcript")))throw new IOException("Voice request identity changed. Your draft is preserved.");}
+    }
+    JSONObject voiceResult(String id) throws Exception {try{return voiceFile("voice-results",id);}catch(Failure e){if(e.status==404)return null;throw e;}}
     private JSONObject request(String method,String route,JSONObject body)throws Exception{
         HttpURLConnection connection=(HttpURLConnection)new URL("https://api.github.com"+route).openConnection();
         connection.setInstanceFollowRedirects(false); connection.setConnectTimeout(15000);connection.setReadTimeout(20000);connection.setRequestMethod(method);

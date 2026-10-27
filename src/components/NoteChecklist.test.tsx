@@ -91,6 +91,40 @@ function pointerDrag(name: string, from: { x: number; y: number }, to: { x: numb
 }
 
 describe('Note checklist', () => {
+  it('puts a small plus after each nested group and adds into the correct parent', async () => {
+    await start([
+      checklistItem('walmart', 'Walmart'), checklistItem('fish', 'Fish', 'walmart'), checklistItem('sauce', 'Sauce', 'fish'),
+      checklistItem('costco', 'Costco', undefined, 1), checklistItem('turkey', 'Turkey', 'costco'),
+    ])
+    const fishPlus = screen.getByRole('button', { name: 'Add checkbox to Fish' })
+    const walmartPlus = screen.getByRole('button', { name: 'Add checkbox to Walmart' })
+    expect(fishPlus.closest('.nc-item')?.getAttribute('aria-label')).toBe('Checklist item: Sauce')
+    expect(walmartPlus.closest('.nc-item')?.getAttribute('aria-label')).toBe('Checklist item: Sauce')
+    expect(screen.getByRole('button', { name: 'Add checkbox to Costco' }).closest('.nc-item')?.getAttribute('aria-label')).toBe('Checklist item: Turkey')
+    fireEvent.click(walmartPlus)
+    const input = screen.getByRole('textbox', { name: 'Edit New item' })
+    expect(document.activeElement).toBe(input)
+    expect(input.getAttribute('enterkeyhint')).toBe('next')
+    fireEvent.change(input, { target: { value: 'Milk' } })
+    expect(saved().find((item) => item.text === 'Milk')?.parentId).toBe('walmart')
+    expect(screen.getByRole('button', { name: 'Add checkbox to Walmart' }).closest('.nc-item')?.getAttribute('aria-label')).toBe('Checklist item: Milk')
+    fireEvent.keyDown(input, { key: 'Enter' })
+    const next = screen.getByRole('textbox', { name: 'Edit New item' })
+    expect(document.activeElement).toBe(next)
+    expect(saved().at(-1)?.parentId).toBe('walmart')
+    expect(saved().every((item) => !item.completedAt)).toBe(true)
+    expect(screen.getAllByRole('button', { name: 'Add item' })).toHaveLength(1)
+  })
+
+  it('keeps the nested plus usable when a list is folded and expands it after adding', async () => {
+    await start([checklistItem('a', 'Walmart'), checklistItem('b', 'Fish', 'a')])
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse Walmart list' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add checkbox to Walmart' }))
+    expect(screen.getByRole('textbox', { name: 'Edit Fish' })).toBeTruthy()
+    expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'Edit New item' }))
+    expect(saved().at(-1)?.parentId).toBe('a')
+  })
+
   it('moves checked roots below open roots without rewriting canonical order or replacing the focused input', async () => {
     await start([checklistItem('a', 'Apples', undefined, 0), checklistItem('b', 'Bread', undefined, 1), checklistItem('c', 'Coffee', undefined, 2)])
     expect(document.querySelector('.nc-checked-divider')).toBeNull()

@@ -7,7 +7,8 @@ public final class VaultConfig {
     public VaultConfig(String owner, String repo, String branch, String path, String token) {
         this.owner=owner.trim(); this.repo=repo.trim(); this.branch=branch.trim(); this.path=path.trim(); this.token=token.trim();
     }
-    public static VaultConfig defaults() { return new VaultConfig("trevormw20","forgeboard-studio-vault","main","data/workspace.json",""); }
+    public static VaultConfig defaults() { return defaults(false); }
+    public static VaultConfig defaults(boolean shared) { return new VaultConfig("trevormw20",shared?"forgeboard-family-notes-vault":BuildConfig.NIKI_PROFILE?"forgeboard-niki-notes-vault":"forgeboard-studio-vault","main","data/workspace.json",""); }
     void validate() {
         if (!owner.matches("[A-Za-z0-9_.-]+") || !repo.matches("[A-Za-z0-9_.-]+") || branch.isEmpty() || branch.contains("\n") || branch.contains("\r") || path.startsWith("/") || path.contains("\\") || path.isEmpty()) throw new IllegalArgumentException("Check the owner, repository, branch and workspace path.");
         for(String part:path.split("/",-1)) if(part.isEmpty()||part.equals(".")||part.equals("..")) throw new IllegalArgumentException("Use a file path such as data/workspace.json.");

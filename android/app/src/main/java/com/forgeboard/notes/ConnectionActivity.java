@@ -16,12 +16,12 @@ public final class ConnectionActivity extends Activity {
     private TextView status;
     private NotesRepository repository;
     @Override public void onCreate(Bundle state) {
-        super.onCreate(state); getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE); repository = NotesRepository.get(this); VaultConfig c = repository.config();
+        super.onCreate(state); getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE); repository = NotesRepository.forIntent(this,getIntent()); VaultConfig c = repository.config();
         LinearLayout root = Ui.column(this); Ui.install(this,root);
         LinearLayout header = Ui.row(this); Ui.pad(header,16); header.addView(Ui.button(this,"‹ Notes",this::finish)); header.addView(Ui.title(this,"Private GitHub vault",20)); root.addView(header);
         ScrollView sc = new ScrollView(this); sc.setFillViewport(true); root.addView(sc,new LinearLayout.LayoutParams(-1,0,1)); LinearLayout body = Ui.column(this); Ui.pad(body,20); sc.addView(body);
-        body.addView(Ui.title(this,"Your notes. Same vault.",25)); Ui.gap(body,8);
-        body.addView(Ui.muted(this,"Connect to the same private repository as Forgeboard. This app never creates or replaces a missing workspace. Your browser connection is separate.")); Ui.gap(body,20);
+        body.addView(Ui.title(this,repository.isShared()?"Shared lists only":BuildConfig.NIKI_PROFILE?"Niki’s private notes":"Your notes. Same vault.",25)); Ui.gap(body,8);
+        body.addView(Ui.muted(this,repository.isShared()?"Connect the household shared repository. It must contain only lists you are happy for both of you to read. Your private notes remain in a separate vault.":BuildConfig.NIKI_PROFILE?"Use a token for Niki’s notes vault and the shared-lists vault only. Do not give this app access to the full planner vault. Your GitHub account owns these repositories; this is a separate notes profile, not a separate GitHub login.":"Connect to the same private repository as Forgeboard. This app never creates or replaces a missing workspace. Your browser connection is separate.")); Ui.gap(body,20);
         owner = Ui.input(this,"GitHub owner",c == null ? "trevormw20" : c.owner,"connectionOwner",false);
         repoName = Ui.input(this,"Private repository",c == null ? "forgeboard-studio-vault" : c.repo,"connectionRepo",false);
         branch = Ui.input(this,"Branch",c == null ? "main" : c.branch,"connectionBranch",false);

@@ -41,6 +41,28 @@ export function NoteChecklist({ forge, note, autoFocus = false, focusItemId }: {
     }
     return grouped
   }, [rows])
+  const groupAdditions = useMemo(() => {
+    const result = new Map<string, { parentId: string; depth: number; name: string }[]>()
+    const place = (tailId: string, parent: (typeof rows)[number]) => {
+      const targets = result.get(tailId) ?? []
+      targets.push({ parentId: parent.item.id, depth: parent.depth + 1, name: parent.item.text.trim() || 'New item' })
+      result.set(tailId, targets)
+    }
+    for (const group of groups) {
+      if (collapsedIds.has(group[0].item.id)) {
+        if (group.length > 1) place(group[0].item.id, group[0])
+        continue
+      }
+      const parents: typeof rows = []
+      for (let index = 0; index < group.length; index++) {
+        const row = group[index]
+        while (parents.length && parents.at(-1)!.depth >= row.depth) place(group[index - 1].item.id, parents.pop()!)
+        if (group[index + 1]?.depth > row.depth) parents.push(row)
+      }
+      while (parents.length) place(group.at(-1)!.item.id, parents.pop()!)
+    }
+    return result
+  }, [groups, collapsedIds])
   const completed = rows.filter(({ item }) => item.completedAt).length
   const deleted = items.filter((item) => item.deletedAt)
   const deletedRoots = deletedChecklistRoots(items)
@@ -270,7 +292,7 @@ export function NoteChecklist({ forge, note, autoFocus = false, focusItemId }: {
         <div className="nc-row">
           <button type="button" className="nc-grip" aria-label={`Move ${name}`} aria-describedby={descriptionId} title="Drag up or down to reorder; right or left to change nesting. Arrow keys also move this item." onKeyDown={(event) => gripKey(event, item.id)} onPointerDown={(event) => startDrag(event, item.id)} onPointerMove={updateDrag} onPointerUp={finishDrag} onPointerCancel={(event) => finishDrag(event, true)} onLostPointerCapture={(event) => finishDrag(event, true)}><GripVertical size={18} /></button>
           <label className="nc-check"><input type="checkbox" aria-label={name} checked={Boolean(item.completedAt)} onChange={() => attempt(() => { forge.actions.toggleNoteChecklistItem(note.id, item.id); setNotice(item.completedAt ? 'Returned to unfinished items in this group.' : 'Checked and moved below unfinished items in this group.') })} /><span className="sr-only">{name}</span></label>
-          <input className="nc-text" ref={(element) => { if (element) inputs.current.set(item.id, element); else inputs.current.delete(item.id) }} aria-label={`Edit ${name}`} value={item.text} placeholder="List item" maxLength={10000} onChange={(event) => attempt(() => forge.actions.updateNoteChecklistItem(note.id, item.id, { text: event.target.value }))} onKeyDown={(event) => rowKey(event, item.id)} />
+          <input className="nc-text" enterKeyHint="next" ref={(element) => { if (element) inputs.current.set(item.id, element); else inputs.current.delete(item.id) }} aria-label={`Edit ${name}`} value={item.text} placeholder="List item" maxLength={10000} onChange={(event) => attempt(() => forge.actions.updateNoteChecklistItem(note.id, item.id, { text: event.target.value }))} onKeyDown={(event) => rowKey(event, item.id)} />
           {depth === 0 && <button type="button" className="nc-icon nc-toggle" aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${name} list`} aria-expanded={!collapsed} title={`${collapsed ? 'Expand' : 'Collapse'} list${childCount ? ` · ${childCount} sub-items` : ''}`} onClick={() => toggleGroup(item.id)}>{collapsed ? <ChevronRight size={17} /> : <ChevronDown size={17} />}{collapsed && childCount > 0 && <span className="nc-child-count" aria-hidden="true">{childCount}</span>}</button>}
           <button type="button" className={`nc-icon ${expanded ? 'is-open' : ''}`} aria-label={`Options for ${name}`} aria-expanded={expanded} onClick={() => setOptionsId(expanded ? undefined : item.id)}><MoreHorizontal size={18} /></button>
         </div>
@@ -282,6 +304,7 @@ export function NoteChecklist({ forge, note, autoFocus = false, focusItemId }: {
           <button type="button" disabled={!canMoveChecklistItem(items, item.id, 'down')} onClick={() => move(item.id, 'down')} aria-label={`Move ${name} down`}><ArrowDown size={15} />Down</button>
           <button type="button" className="nc-delete" aria-label={`Delete ${name} and its sub-items`} onClick={() => attempt(() => { forge.actions.deleteNoteChecklistItem(note.id, item.id); setLastDeleted({ id: item.id, text: name }); setOptionsId(undefined); setNotice('Checklist item and its sub-items moved to trash.') })}><Trash2 size={15} />Delete</button>
         </div>}
+        {groupAdditions.get(item.id)?.map((target) => <div className="nc-group-add" key={target.parentId} style={{ '--add-depth': target.depth - depth } as CSSProperties}><button type="button" aria-label={`Add checkbox to ${target.name}`} title={`Add checkbox to ${target.name}`} onClick={() => add({ text: '', parentId: target.parentId })}><Plus size={15} aria-hidden="true" /></button></div>)}
       </li>
       })
     })}</ul>}

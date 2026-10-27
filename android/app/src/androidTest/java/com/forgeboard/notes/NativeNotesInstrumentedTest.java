@@ -94,6 +94,38 @@ public final class NativeNotesInstrumentedTest {
         idle();
     }
 
+    @Test public void enterCreatesFocusedSiblingAndNestedPlusAppendsToOnlyThatGroup() throws Exception {
+        repository.edit(ws->{NotesCore.moveChecklistItem(ws,NOTE,CHILD,"indent",NOW);});
+        try(ActivityScenario<NoteEditorActivity> scenario=ActivityScenario.launch(new Intent(context,NoteEditorActivity.class).putExtra("noteId",NOTE))) {
+            scenario.onActivity(activity->{
+                View plus=tagged(activity.getWindow().getDecorView(),"checklistGroupAdd:"+ROOT,View.class);plus.performClick();
+                EditText focused=(EditText)activity.getCurrentFocus();assertTrue(focused.getTag().toString().startsWith("checklistText:"));focused.setText("New nested item");
+                focused.onEditorAction(android.view.inputmethod.EditorInfo.IME_ACTION_NEXT);
+                EditText next=(EditText)activity.getCurrentFocus();assertNotSame(focused,next);next.setText("Next nested item");
+            });
+            scenario.moveToState(Lifecycle.State.CREATED);
+        }
+        List<NotesCore.Row> rows=NotesCore.orderedChecklist(NotesCore.findNote(repository.snapshot(),NOTE));
+        NotesCore.Row first=null,next=null;for(NotesCore.Row row:rows){if("New nested item".equals(row.item.optString("text")))first=row;if("Next nested item".equals(row.item.optString("text")))next=row;}
+        assertNotNull(first);assertNotNull(next);assertEquals(1,first.depth);assertEquals(1,next.depth);assertTrue(first.item.isNull("completedAt"));assertTrue(next.item.isNull("completedAt"));
+    }
+    @Test public void voiceDraftNeedsExplicitApprovalAndSharedCacheIsIsolated() throws Exception {
+        NotesRepository shared=NotesRepository.get(context,true);assertFalse(shared.isConnected());
+        String privateBefore=repository.snapshot().toString();String sharedBefore=shared.snapshot().toString();
+        new SecureStore(context,"voice-draft-v1").write(new JSONObject().put("raw","Walmart; Fish; Sauce").put("review","").put("title","").put("vault","personal").put("noteId",NOTE).put("projectId",PROJECT).put("useCurrent",true));
+        try(ActivityScenario<VoiceCaptureActivity> scenario=ActivityScenario.launch(new Intent(context,VoiceCaptureActivity.class))) {
+            scenario.onActivity(activity->{
+                tagged(activity.getWindow().getDecorView(),"voiceTitle",EditText.class).setText("Reviewed list");
+                tagged(activity.getWindow().getDecorView(),"voiceReview",EditText.class).setText("Walmart\n  Fish\n    Sauce");
+                assertEquals(privateBefore,repository.snapshot().toString());
+                tagged(activity.getWindow().getDecorView(),"voiceApply",View.class).performClick();
+            });idle();
+        }
+        assertEquals(sharedBefore,shared.snapshot().toString());
+        assertTrue(NotesCore.orderedChecklist(NotesCore.findNote(repository.snapshot(),NOTE)).stream().anyMatch(row->"Sauce".equals(row.item.optString("text"))&&row.depth==2));
+        String personal=repository.snapshot().toString();shared.edit(ws->NotesCore.addNote(ws,null,null,"Shared only","",null,NOW));assertEquals(personal,repository.snapshot().toString());
+        assertFalse(repository.snapshot().toString().contains("Shared only"));
+    }
     @Test public void editorPersistsTextNestedCheckboxesAndIndependentCompletion() throws Exception {
         String untouchedTasks = repository.snapshot().getJSONArray("tasks").toString();
         Intent intent = new Intent(context, NoteEditorActivity.class).putExtra("noteId", NOTE).putExtra("projectId", PROJECT);

@@ -1,13 +1,16 @@
 plugins { id 'com.android.application' }
+def nikiProfile = providers.gradleProperty('notesProfile').orElse('owner').get() == 'niki'
 android {
     namespace 'com.forgeboard.notes'
     compileSdk 36
     defaultConfig {
-        applicationId 'io.github.trevormw20.forgeboard.notes'
+        applicationId nikiProfile ? 'io.github.trevormw20.forgeboard.notes.niki' : 'io.github.trevormw20.forgeboard.notes'
         minSdk 26
         targetSdk 36
-        versionCode 1
-        versionName '0.1.0'
+        versionCode 2
+        versionName '0.2.0'
+        buildConfigField 'boolean', 'NIKI_PROFILE', nikiProfile.toString()
+        manifestPlaceholders = [appLabel: nikiProfile ? 'Niki Notes' : 'Forgeboard Notes']
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
     signingConfigs {

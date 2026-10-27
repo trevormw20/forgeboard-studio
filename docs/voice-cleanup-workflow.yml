@@ -1,0 +1,56 @@
+# Install this workflow ONLY in a PRIVATE notes/data repository.
+name: Organize voice checklist drafts
+on:
+  push:
+    branches: [main]
+    paths: ['data/voice-inbox/*.json']
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: voice-cleanup
+  cancel-in-progress: false
+jobs:
+  organize:
+    if: github.event.repository.private == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+      - uses: actions/checkout@v7
+        with:
+          repository: trevormw20/forgeboard-studio
+          ref: main
+          path: processor
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Test the bounded transcript-only processor
+        run: node --test processor/scripts/voice-checks.mjs
+      - name: Organize explicitly submitted transcripts (never ordinary notes)
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_VOICE_MODEL: ${{ vars.ANTHROPIC_VOICE_MODEL }}
+        run: node processor/scripts/voice-cleanup.mjs
+      - name: Save review drafts without changing any notes
+        if: always()
+        shell: bash
+        run: |
+          shopt -s nullglob
+          results=(data/voice-results/*.json)
+          if (( ${#results[@]} == 0 )); then exit 0; fi
+          git add -- "${results[@]}"
+          if git diff --cached --quiet; then exit 0; fi
+          git config user.name 'Forgeboard voice helper'
+          git config user.email 'forgeboard@users.noreply.github.com'
+          git commit -m '[skip ai] Save voice drafts for review'
+          for attempt in 1 2 3 4; do
+            if git push origin HEAD:main; then exit 0; fi
+            git pull --rebase origin main
+          done
+          exit 1
