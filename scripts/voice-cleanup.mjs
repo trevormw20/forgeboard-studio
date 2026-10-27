@@ -40,7 +40,7 @@ export async function clean(request, { key, workspaceId, model = 'claude-haiku-4
       const type = problem?.error?.type;
       const allowed = new Set(['authentication_error', 'permission_error', 'not_found_error', 'rate_limit_error', 'invalid_request_error', 'overloaded_error', 'api_error']);
       const message = typeof problem?.error?.message === 'string' ? problem.error.message.toLowerCase() : '';
-      const reason = /credit balance|billing|purchase credits/.test(message) ? 'billing-unavailable' : /model/.test(message) ? 'model-unavailable' : allowed.has(type) ? type : 'provider-unavailable';
+      const reason = /credit balance|billing|purchase credits/.test(message) ? 'billing-unavailable' : /anthropic-workspace-id|not scoped to a workspace/.test(message) ? 'workspace-required' : /model/.test(message) ? 'model-unavailable' : allowed.has(type) ? type : 'provider-unavailable';
       return { id: request.id, status: 'unavailable', reason, httpStatus: response.status };
     }
     stage = 'response';
@@ -75,6 +75,16 @@ export async function processInbox(root, options = {}) {
   }
   return count;
 }
+export async function smokeTest(options) {
+  // Configuration verification ONLY: hard-coded synthetic content, no file/inbox/workspace reads.
+  const result = await clean({ id: 'ca4aeb42-806b-42ce-a517-25146c494e7e', transcript: 'Synthetic configuration test: a shopping list with Walmart as a parent, milk and eggs as children.' }, options);
+  return { status: result.status, ...(result.reason ? { reason: result.reason } : {}), ...(result.httpStatus ? { httpStatus: result.httpStatus } : {}), ...(result.failureStage ? { failureStage: result.failureStage } : {}) };
+}
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  await processInbox(process.cwd(), { key: process.env.ANTHROPIC_API_KEY, workspaceId: process.env.ANTHROPIC_WORKSPACE_ID, model: process.env.ANTHROPIC_VOICE_MODEL || 'claude-haiku-4-5' });
+  const options = { key: process.env.ANTHROPIC_API_KEY, workspaceId: process.env.ANTHROPIC_WORKSPACE_ID, model: process.env.ANTHROPIC_VOICE_MODEL || 'claude-haiku-4-5' };
+  if (process.argv.includes('--smoke-test')) {
+    const result = await smokeTest(options);
+    process.stdout.write(`Claude voice configuration test: ${JSON.stringify(result)}\n`);
+    if (result.status !== 'ready') process.exitCode = 1;
+  } else await processInbox(process.cwd(), options);
 }

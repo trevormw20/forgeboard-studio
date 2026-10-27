@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { validateRequest, validateDraft, clean, processInbox } from './voice-cleanup.mjs';
+import { validateRequest, validateDraft, clean, processInbox, smokeTest } from './voice-cleanup.mjs';
 const id = '18a358b8-19e2-4f51-9ada-46fad0e23645';
 const request = { version: 1, id, createdAt: '2026-10-27T12:00:00Z', transcript: 'Walmart: fish and sauce. Costco: turkey.' };
 test('accepts only bounded, matching immutable requests', () => {
@@ -44,4 +44,12 @@ test('processes only explicit voice inbox and skips already handled requests', a
     assert.equal(await processInbox(root, { key: 'fake', fetcher: () => assert.fail('repeat API call') }), 0);
     assert.equal(JSON.parse(await fs.readFile(path.join(root, 'data/voice-results', `${id}.json`))).status, 'unavailable');
   } finally { await fs.rm(root, { recursive: true, force: true }); }
+});
+test('configuration smoke test uses only hard-coded synthetic text and returns no content or secrets', async () => {
+  const result = await smokeTest({ key: 'fake-secret', fetcher: async (url, options) => {
+    const body = JSON.parse(options.body);assert.match(JSON.parse(body.messages[0].content).transcript, /^Synthetic configuration test:/);
+    return { ok: true, json: async () => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: '{"title":"Shopping","items":[{"text":"Milk","depth":0}]}' }] }) };
+  } });
+  assert.deepEqual(result, { status: 'ready' });
+  assert.equal((await smokeTest()).reason, 'not-configured');
 });

@@ -44,9 +44,10 @@ public final class VoiceCaptureActivity extends Activity {
         heading=Ui.title(this,"Starting microphone…",28);heading.setTag("voiceHeading");body.addView(heading);Ui.gap(body,12);
         transcript=Ui.text(this,latest.isEmpty()?"Say your list naturally.":latest,18,Ui.TEXT);transcript.setTag("voiceTranscript");transcript.setTextIsSelectable(true);transcript.setMinHeight(Ui.dp(this,100));body.addView(transcript);
         status=Ui.muted(this,"");status.setTag("voiceStatus");body.addView(status);Ui.gap(body,24);
-        stop=Ui.button(this,"Stop",this::stopRecording);stop.setTag("voiceStop");stop.setMinHeight(Ui.dp(this,64));body.addView(stop,new LinearLayout.LayoutParams(-1,-2));
-        retry=Ui.button(this,"Try again",this::retry);retry.setTag("voiceRetry");body.addView(retry,new LinearLayout.LayoutParams(-1,-2));
-        cancel=Ui.button(this,"Cancel",()->{cancelRecorder();saveTranscript(true);try{manager.cancel(captureId);finish();}catch(Exception e){Ui.error(this,e);}});cancel.setTag("voiceCancel");body.addView(cancel);
+        LinearLayout actionBar=Ui.column(this);Ui.pad(actionBar,16);root.addView(actionBar);
+        stop=Ui.button(this,"Stop",this::stopRecording);stop.setTag("voiceStop");stop.setMinHeight(Ui.dp(this,64));actionBar.addView(stop,new LinearLayout.LayoutParams(-1,-2));
+        retry=Ui.button(this,"Try again",this::retry);retry.setTag("voiceRetry");actionBar.addView(retry,new LinearLayout.LayoutParams(-1,-2));
+        cancel=Ui.button(this,"Cancel",()->{cancelRecorder();saveTranscript(true);try{manager.cancel(captureId);finish();}catch(Exception e){Ui.error(this,e);}});cancel.setTag("voiceCancel");actionBar.addView(cancel);
         Ui.gap(body,16);body.addView(Ui.muted(this,"Stop sends this transcript to Claude and adds its checklist here automatically. Android’s speech provider may use the internet. Your original words stay saved."));refresh();
     }
     private void startRecording(){
@@ -90,10 +91,10 @@ public final class VoiceCaptureActivity extends Activity {
         if(history==null)return;history.removeAllViews();List<JSONObject> jobs=manager.jobs();int shown=0;
         for(JSONObject job:jobs){if(job.optString("raw").trim().isEmpty())continue;if(shown++>=30)break;
             String raw=job.optString("raw"),label=job.optString("status")+" · "+(raw.length()>70?raw.substring(0,70)+"…":raw);
-            history.addView(Ui.button(this,label,()->{if("cancelled".equals(job.optString("status"))){new AlertDialog.Builder(this).setTitle("Cancelled recording — not sent").setMessage(raw).setPositiveButton("Close",null).show();return;}startActivity(new Intent(this,VoiceCaptureActivity.class).putExtra(EXTRA_CAPTURE,job.optString("id")));}));
+            history.addView(Ui.button(this,label,()->{if("cancelled".equals(job.optString("status"))||"applied".equals(job.optString("status"))){AlertDialog.Builder dialog=new AlertDialog.Builder(this).setTitle("Original recording transcript").setMessage(raw).setNegativeButton("Close",null);if("applied".equals(job.optString("status")))dialog.setPositiveButton("Open checklist",(d,w)->startActivity(NotesRepository.get(this,job.optBoolean("shared")).target(new Intent(this,NoteEditorActivity.class).putExtra("noteId",job.optString("resultNoteId")))));AlertDialog shownDialog=dialog.show();TextView text=shownDialog.findViewById(android.R.id.message);if(text!=null)text.setTextIsSelectable(true);return;}startActivity(new Intent(this,VoiceCaptureActivity.class).putExtra(EXTRA_CAPTURE,job.optString("id")));}));
         }
         if(shown==0)history.addView(Ui.muted(this,"No saved recordings yet."));
-        history.addView(Ui.button(this,"Earlier review-only draft (version 0.2)",()->startActivity(new Intent(this,LegacyVoiceCaptureActivity.class))));
+        try{JSONObject old=new SecureStore(this,"voice-draft-v1").read();if(old!=null&&!old.optBoolean("applied")&&!old.optString("raw").trim().isEmpty())history.addView(Ui.button(this,"Earlier review-only draft (version 0.2)",()->startActivity(new Intent(this,LegacyVoiceCaptureActivity.class))));}catch(Exception e){history.addView(Ui.muted(this,"An older encrypted draft could not be unlocked and has been preserved. Do not clear app data."));}
     }
     @Override public void onRequestPermissionsResult(int request,String[] permissions,int[] results){super.onRequestPermissionsResult(request,permissions,results);if(request==MICROPHONE){permissionRequested=false;if(results.length>0&&results[0]==PackageManager.PERMISSION_GRANTED){permissionDenied=false;startRecording();}else{permissionDenied=true;message="Allow microphone access to record. Nothing has been sent.";refresh();}}}
     @android.annotation.SuppressLint("UnspecifiedRegisterReceiverFlag")

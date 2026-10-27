@@ -35,6 +35,7 @@ public final class AutoVoiceCore {
             case "not-configured":return "Claude isn’t configured in your personal vault yet. Your recording is saved. Add its private API secret, then Retry.";
             case "authentication_error":return "Claude refused the API key. Your recording is saved. Update the private secret, then Retry.";
             case "billing-unavailable":return "Claude API billing needs attention. Your recording is saved. Fix billing, then Retry.";
+            case "workspace-required":return "Claude needs ANTHROPIC_WORKSPACE_ID in your personal vault’s Actions secrets. Your recording is saved; add it, then Retry.";
             default:return "Claude couldn’t organize this recording. The original is saved; Retry when the service is ready.";
         }
     }

@@ -30,7 +30,7 @@ final class VoiceCaptureManager {
     private final List<Runnable> callbacks=new ArrayList<>();
     private JSONObject state;
     private String cacheError;
-    private boolean busy;
+    private boolean busy,rerun;
     static synchronized VoiceCaptureManager get(Context context){
         if(BuildConfig.DEBUG&&testInstance!=null)return testInstance;
         Context app=context.getApplicationContext();
@@ -70,10 +70,14 @@ final class VoiceCaptureManager {
         return waiting==0&&failed==0?"":"Voice: "+waiting+" waiting for Claude"+(failed>0?" · "+failed+" need attention (Saved voice captures)":"");
     }
     void process(Runnable callback){
-        synchronized(this){if(callback!=null)callbacks.add(callback);if(busy)return;busy=true;}
+        synchronized(this){if(callback!=null)callbacks.add(callback);if(busy){rerun=true;return;}busy=true;rerun=false;}
         io.execute(()->{
-            try{int processed=0;List<JSONObject> candidates=jobs();candidates.sort(Comparator.comparingLong(job->job.optLong("lastAttemptAt")));for(JSONObject job:candidates){if(!AutoVoiceCore.pending(job)||job.optLong("nextAttemptAt")>System.currentTimeMillis())continue;if(processed++>=4)break;try{change(job.optString("id"),item->item.put("lastAttemptAt",System.currentTimeMillis()));}catch(Exception ignored){continue;}processOne(job);}}
-            finally{List<Runnable> done;synchronized(this){busy=false;done=new ArrayList<>(callbacks);callbacks.clear();}main.post(()->{for(Runnable callbackItem:done)callbackItem.run();});}
+            while(true){
+                try{int processed=0;List<JSONObject> candidates=jobs();candidates.sort(Comparator.comparingLong(job->job.optLong("lastAttemptAt")));for(JSONObject job:candidates){if(!AutoVoiceCore.pending(job)||job.optLong("nextAttemptAt")>System.currentTimeMillis())continue;if(processed++>=4)break;try{change(job.optString("id"),item->item.put("lastAttemptAt",System.currentTimeMillis()));}catch(Exception ignored){continue;}processOne(job);}}
+                catch(Exception ignored){/* Keep the durable queue; a later scheduled pass can retry. */}
+                List<Runnable> done;synchronized(this){if(rerun){rerun=false;continue;}busy=false;done=new ArrayList<>(callbacks);callbacks.clear();}
+                main.post(()->{for(Runnable callbackItem:done)callbackItem.run();});break;
+            }
         });
     }
     private void processOne(JSONObject initial){

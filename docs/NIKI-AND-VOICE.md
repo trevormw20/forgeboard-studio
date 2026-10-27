@@ -1,4 +1,4 @@
-# Notes 0.2: quick entry, voice, and shared lists
+# Notes 0.3: one-stop voice, Niki notes, and shared lists
 
 The Pages app and private planner vault still work as before. Update the existing Android app by installing **Forgeboard-Notes.apk over it**; do not uninstall (unsynced offline notes would be lost). **Niki-Notes.apk** installs separately with its own application ID and encrypted cache.
 
@@ -22,13 +22,15 @@ Each uses `main` and `data/workspace.json`. These are distinct repositories, not
 
 Token expiry still applies. Replace an expired token on each phone. Default home-screen widgets currently display **personal** notes only; open Shared lists in the app for household lists. Your browser planner does not automatically load this separate shared vault.
 
-## Voice, with review
+## Voice: tap, speak, Stop
 
-Tap **Voice note** for a new note, or **Voice** inside a current list. Android's selected speech service transcribes your speech; offline recognition is requested, but the provider may use its network. Forgeboard does not upload audio. You can instead type or use your keyboard microphone.
+Tap **Voice note** to start listening immediately for a new checklist, or **Voice** inside an existing list to append there. Speak naturally, then tap **Stop**. The transcript goes to Claude Haiku and its organized checklist is added automatically. There are no separate Speak, Organize, or Approve steps. Android asks for microphone permission on first use; the app cannot skip that system permission.
 
-**Organize with Claude** sends only this transcript through your personal private vault to Claude Haiku. Ordinary notes and planner data are not sent. The API key stays in GitHub Actions; it is never in the APK or browser. Your original transcript and editable review are encrypted on the device. A pending request can be retried after reconnecting without adding duplicate checkboxes. GitHub Actions is a queue, not instant processing; results may take minutes. The app checks while this screen is open and resumes checking when you return.
+The Stop button stays at the bottom of the screen, even for a long recording. Pauses in speech do not submit the capture. Cancel, or leaving before Stop, does not send it to Claude. Android's on-device recognizer is preferred when available; the fallback speech provider may use the network. Forgeboard never uploads audio. Only this explicitly stopped transcript goes through your personal private vault to Claude—ordinary notes and planner data are excluded. Keys stay in private Actions, never the APK/browser.
 
-Edit the returned review, then tap **Approve & add checkboxes**. One line is one item; two leading spaces make a sub-checkbox, four make a sub-sub-checkbox. The destination label identifies the original note and space of a resumed draft; uncheck the current-note option to create a new one instead. Nothing is checked off automatically. Changes you make to the review while Claude works are not overwritten. If AI is unavailable, **Review without AI** conservatively splits explicit lines/semicolons and keeps meaning; it is not presented as Claude cleanup.
+You can leave after Stop. The encrypted queue continues while the app is open and through Android's best-effort background jobs; the OS can delay background work. GitHub Actions cleanup can take minutes, not seconds. Once ready, the app adds unchecked items to the original private/shared destination without replacing existing text or checking off other work. Foreground capture opens the resulting checklist automatically. Offline requests resume when connected, with stable IDs preventing repeated additions after retries or a crash. Deleted/moved notes or changed vault connections stop the addition instead of sending it elsewhere.
+
+The original transcript is kept encrypted under **••• → Saved voice captures**. If Claude is unavailable, not configured, or refuses the key, the capture stays saved with an error and Retry; it is not silently replaced with local cleanup. After fixing configuration, Retry requests Claude again when needed. Existing review-only drafts from version 0.2 remain available there and are not automatically submitted or applied. The old private draft screen is recovery-only, not the new Voice note flow.
 
 The existing planner vault already has its own API secret. To enable Claude for **Niki**, add `ANTHROPIC_API_KEY` as a **repository Actions secret** in [Niki’s vault settings](https://github.com/trevormw20/forgeboard-niki-notes-vault/settings/secrets/actions) (not an environment named after the key). If that key is not workspace-scoped, also add `ANTHROPIC_WORKSPACE_ID`, as in your existing planner vault; the workflow supports it. GitHub cannot copy a stored secret value to another repository. Do not put the key in the shared vault or either app. `ANTHROPIC_VOICE_MODEL` is an optional repository variable; default `claude-haiku-4-5`. API usage is billed separately. The workflow template is `docs/voice-cleanup-workflow.yml`; it belongs only in private personal vaults as `.github/workflows/voice-cleanup.yml`.
 
@@ -40,7 +42,7 @@ The small plus appears at the end of each parent’s existing nested group. It a
 
 ## Owner checks after installation
 
-- On your physical phone, speak a rough list, request Claude cleanup, review the result, append to a current note, then try a new note. Confirm the original transcript survives closing/reopening before approval.
+- On your physical phone, tap Voice note, speak, then Stop. Confirm the organized new checklist appears without further buttons. Repeat from inside a current list; its existing items must remain. Try leaving after Stop and check that it finishes later. Cancel before Stop must not submit. Original transcripts should remain in Saved voice captures.
 - Connect Niki's and Shared lists with the limited tokens above. A personal test note must not appear in Shared lists or your private vault.
 - Create one shared test list on one phone, Sync, then Sync the other. Edit different rows on both and confirm both edits survive. Niki must not be given access to your planner repository.
 - Home-screen widgets remain personal; test your existing widget after updating without uninstalling.
