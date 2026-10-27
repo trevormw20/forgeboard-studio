@@ -21,6 +21,11 @@ test('missing key and API failures return safe fallback with no transcript or se
   const result = await clean(request, { key: 'fake-secret', fetcher: async () => { throw Error('fake-secret private transcript'); } });
   assert.equal(result.status, 'unavailable'); assert.ok(!JSON.stringify(result).includes('fake-secret'));
 });
+test('provider diagnostics expose only safe categories, never echoed content', async () => {
+  const result = await clean(request, { key: 'fake', fetcher: async () => ({ ok: false, status: 400, json: async () => ({ error: { type: 'invalid_request_error', message: 'Your credit balance is too low. private-text fake-secret' } }) }) });
+  assert.deepEqual(result, { id, status: 'unavailable', reason: 'billing-unavailable', httpStatus: 400 });
+  assert.ok(!JSON.stringify(result).includes('private-text'));
+});
 test('only sends explicit transcript, with fixed endpoint and no tools; requires complete response', async () => {
   let sent;
   const fetcher = async (url, options) => { assert.equal(url, 'https://api.anthropic.com/v1/messages'); sent = JSON.parse(options.body); return { ok: true, json: async () => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: '{"title":"Groceries","items":[{"text":"Fish","depth":0}]}' }] }) }; };
