@@ -4,7 +4,7 @@ A native, notes-only companion to the existing Forgeboard website. Android 8.0 o
 
 ## Install and connect
 
-1. On your Android phone, open the [Android release downloads](https://github.com/trevormw20/forgeboard-studio/releases/tag/android-notes-v0.1.0) and download **Forgeboard-Notes.apk**. Open the download and allow installation from that source if Android asks. No Play Store account is required. Do not disable Play Protect.
+1. On your Android phone, open the [Android release downloads](https://github.com/trevormw20/forgeboard-studio/releases/tag/android-notes-v0.2.0) and download **Forgeboard-Notes.apk** for you, or **Niki-Notes.apk** for Niki. Open the download and allow installation from that source if Android asks. No Play Store account is required. Do not disable Play Protect. Update your existing app **without uninstalling**.
 2. Open **Forgeboard Notes** → **Connect GitHub**. The defaults are owner `trevormw20`, private repository `forgeboard-studio-vault`, branch `main`, file `data/workspace.json`.
 3. Enter your fine-grained GitHub token **on the phone only**. It needs access to only the private vault and **Contents → Read and write**. The browser's saved token is not shared with this app. Token expiry still applies.
 4. Connect, select a project notebook, and open or create a note. The project selector comes from your existing vault, not a second list you need to maintain. **General** is for notes with no project.
@@ -25,7 +25,7 @@ The native app and website read/write the **same JSON workspace**. Open either, 
 
 Offline edits remain in an encrypted durable outbox and merge when connected again. The latest remote planner envelope is preserved; Android edits only notes and labels, not tasks, projects, reports or AI settings. Concurrent edits merge by stable note/checklist IDs; conflicting versions are saved for recovery. **Do not uninstall, clear app data, or switch vaults with unsynced work.** Disconnect forgets the token but retains offline notes. Switching vaults is blocked while pending changes exist. Android backup/transfer is disabled to avoid copying tokens or an outbox without its encryption key.
 
-Personal notes are not automatically sent to Claude/OpenAI. No API key is required for this companion. No analytics, advertising, email integration or account/chat control is included.
+Personal notes are not automatically sent to Claude/OpenAI. Notes and local voice review work without any API key. Optional **Voice → Organize with Claude** sends only the requested transcript through your private vault, for review before adding; the API key stays in private Actions. **Shared lists** uses its own repository, encrypted cache and connection, separate from both personal profiles. See the [Niki, sharing and voice setup guide](../docs/NIKI-AND-VOICE.md). No analytics, advertising, email integration or account/chat control is included. Widgets currently use personal notes, not Shared lists.
 
 This personal planner is not a reviewed or certified health-record system. Do not add patient-identifying or sensitive health information without an appropriate compliance review. Device encryption does not make GitHub Pages or this app HIPAA-certified.
 
@@ -39,6 +39,8 @@ Build with JDK17, Gradle8.13, Android SDK36 and build tools35.0.0:
 cd android
 gradle testDebugUnitTest lintDebug assembleDebug
 gradle connectedDebugAndroidTest
+# Separate app ID, same reviewed notes code, Niki-only personal vault defaults:
+gradle -PnotesProfile=niki testDebugUnitTest lintDebug assembleDebug
 ```
 
 The private manual **Android notes build and device tests** workflow checks out only this public source, builds/tests/lints, signs the release using the private secret, verifies its signature, and uploads the APK/checksum plus test evidence. It never checks out private planner data. The release is published only after reviewing build/device results. There are no runtime third-party dependencies; AndroidX is test-only. The existing Pages build remains separate.
