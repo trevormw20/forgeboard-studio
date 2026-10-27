@@ -4,11 +4,14 @@ import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import vm from 'node:vm';
 
-const directory = new URL('../public/downloads/0.2.0/', import.meta.url);
 test('direct installers match the verified signed release files byte for byte', async () => {
+  const latest = JSON.parse(await readFile(new URL('../public/downloads/latest.json', import.meta.url), 'utf8'));
+  assert.match(latest.version, /^\d+\.\d+\.\d+$/);
+  const directory = new URL(`../public/downloads/${latest.version}/`, import.meta.url);
   const manifest = JSON.parse(await readFile(new URL('manifest.json', directory), 'utf8'));
-  assert.equal(manifest.version, '0.2.0');
-  assert.equal(manifest.sourceCommit, '4ef4ce91a9a0193cf2352c45174573cba551a6ea');
+  assert.equal(manifest.version, latest.version);
+  assert.match(manifest.sourceCommit, /^[a-f0-9]{40}$/);
+  assert.equal((await readFile(new URL('SOURCE_COMMIT.txt', directory), 'utf8')).trim(), manifest.sourceCommit);
   assert.deepEqual(manifest.files.map(file => file.name), ['Forgeboard-Notes.apk', 'Niki-Notes.apk']);
   const page = await readFile(new URL('../public/downloads/index.html', import.meta.url), 'utf8');
   const sums = await readFile(new URL('SHA256SUMS.txt', directory), 'utf8');
@@ -18,7 +21,7 @@ test('direct installers match the verified signed release files byte for byte', 
     assert.equal(bytes.subarray(0, 4).toString('hex'), '504b0304');
     assert.equal(createHash('sha256').update(bytes).digest('hex'), file.sha256);
     assert.ok(sums.includes(`${file.sha256}  ${file.name}`));
-    assert.ok(page.includes(`href="./0.2.0/${file.name}" download="${file.name}"`));
+    assert.ok(page.includes(`href="./${latest.version}/${file.name}" download="${file.name}"`));
     assert.ok(page.includes(file.sha256));
   }
   assert.ok(!/<script|<form|https:\/\/github\.com\/.*releases\/download/i.test(page));

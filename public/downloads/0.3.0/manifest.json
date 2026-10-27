@@ -1,0 +1,8 @@
+{
+  "version": "0.3.0",
+  "sourceCommit": "d38392b9aaf011ce80e36bc09fe54f80a5a9c660",
+  "files": [
+    { "name": "Forgeboard-Notes.apk", "bytes": 107376, "sha256": "9b23d3ff87ce1e0ed69c008cb0bd493388a32d2757438db98972bbb24406be2f" },
+    { "name": "Niki-Notes.apk", "bytes": 107332, "sha256": "2bf5f052a9164031bdb3c7b1be28db6ffd347b50ae95a7d107175a837e8e6508" }
+  ]
+}
