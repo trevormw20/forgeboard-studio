@@ -65,7 +65,10 @@ export function NoteChecklist({ forge, note, autoFocus = false, focusItemId }: {
     }
   }, [])
 
-  useEffect(() => { clearDrag() }, [note.id])
+  // Reset for a different note before the browser can accept a new gesture.
+  // A passive mount effect could otherwise cancel the very first pointer-down
+  // after the asynchronously loaded checklist becomes visible.
+  useLayoutEffect(() => { clearDrag() }, [note.id])
 
   // Consume each explicit request once. A requested row can arrive in the next
   // workspace snapshot, but ordinary autosaves must never move the cursor back.

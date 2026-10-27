@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { useLayoutEffect } from 'react'
 import { useForgeboard } from '../hooks/useForgeboard'
 import { createSeedWorkspace } from '../seed'
 import type { NoteChecklistItem, Workspace } from '../types'
@@ -31,17 +32,23 @@ afterEach(() => { cleanup(); cached = undefined; vi.unstubAllGlobals(); vi.resto
 
 type FocusProps = { autoFocus?: boolean; focusItemId?: string }
 
-function Harness({ failAdd = false, ...focus }: { failAdd?: boolean } & FocusProps) {
+function Harness({ failAdd = false, beginDragOnMount = false, ...focus }: { failAdd?: boolean; beginDragOnMount?: boolean } & FocusProps) {
   const forge = useForgeboard()
+  useLayoutEffect(() => {
+    if (!forge.ready || !beginDragOnMount) return
+    // A pointer may reach a newly mounted checklist before passive effects run.
+    // Child layout effects have completed, but its passive mount reset has not.
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Move Coffee' }), { clientX: 70, clientY: 200, pointerId: 1, button: 0 })
+  }, [forge.ready, beginDragOnMount])
   if (!forge.ready) return <p>Loading</p>
   const checklistForge = failAdd ? { ...forge, actions: { ...forge.actions, addNoteChecklistItem: () => { throw new Error('Could not add this item.') } } } : forge
   return <><input aria-label="Capture draft" /><NoteChecklist forge={checklistForge} note={forge.workspace.personalNotes![0]} {...focus} /><output aria-label="Saved checklist">{JSON.stringify(forge.workspace.personalNotes![0].checklist ?? [])}</output></>
 }
 
-async function start(items: NoteChecklistItem[] = [], failAdd = false, focus: FocusProps = {}) {
+async function start(items: NoteChecklistItem[] = [], failAdd = false, focus: FocusProps = {}, beginDragOnMount = false) {
   cached = createSeedWorkspace()
   cached.personalNotes = [{ id: 'note', title: 'Daily notes', body: 'Keep the original writing.', checklist: items, createdAt: '2026-10-21T12:00:00Z', updatedAt: '2026-10-21T12:00:00Z' }]
-  const view = render(<Harness failAdd={failAdd} {...focus} />)
+  const view = render(<Harness failAdd={failAdd} beginDragOnMount={beginDragOnMount} {...focus} />)
   await screen.findByRole('button', { name: 'Add item' })
   return view
 }
@@ -402,7 +409,12 @@ describe('Note checklist', () => {
       checklistItem('c', 'Coffee', undefined, 2), checklistItem('milk', 'Milk', 'c'),
     ])
     mockChecklistRects()
-    pointerDrag('Coffee', { x: 70, y: 200 }, { x: 105, y: 140 })
+    const grip = screen.getByRole('button', { name: 'Move Coffee' })
+    fireEvent.pointerDown(grip, { clientX: 70, clientY: 200, pointerId: 1, button: 0 })
+    fireEvent.pointerMove(grip, { clientX: 105, clientY: 140, pointerId: 1 })
+    expect(document.querySelector('.note-checklist [role="status"]')?.textContent).toBe('Last sub-item of Apples · Level 2')
+    expect(document.querySelector('.is-dragging-checklist')).not.toBeNull()
+    fireEvent.pointerUp(grip, { clientX: 105, clientY: 140, pointerId: 1 })
     expect(rowNames()).toEqual(['Apples', 'Coffee', 'Milk', 'Bread'])
     expect(saved().find((item) => item.id === 'c')?.parentId).toBe('a')
     expect(saved().find((item) => item.id === 'milk')?.parentId).toBe('c')
@@ -411,6 +423,21 @@ describe('Note checklist', () => {
     expect(rowNames()).toEqual(['Apples', 'Bread', 'Coffee', 'Milk'])
     expect(saved().find((item) => item.id === 'c')?.parentId).toBeUndefined()
     expect(screen.getByRole('listitem', { name: 'Checklist item: Milk' }).getAttribute('aria-level')).toBe('2')
+  })
+
+  it('keeps the first drag active when it starts before passive mount effects have run', async () => {
+    await start([
+      checklistItem('a', 'Apples'), checklistItem('b', 'Bread', undefined, 1),
+      checklistItem('c', 'Coffee', undefined, 2), checklistItem('milk', 'Milk', 'c'),
+    ], false, {}, true)
+    mockChecklistRects()
+    const grip = screen.getByRole('button', { name: 'Move Coffee' })
+    fireEvent.pointerMove(grip, { clientX: 105, clientY: 140, pointerId: 1 })
+    expect(document.querySelector('.note-checklist [role="status"]')?.textContent).toBe('Last sub-item of Apples · Level 2')
+    fireEvent.pointerUp(grip, { clientX: 105, clientY: 140, pointerId: 1 })
+    expect(rowNames()).toEqual(['Apples', 'Coffee', 'Milk', 'Bread'])
+    expect(saved().find((item) => item.id === 'c')?.parentId).toBe('a')
+    expect(saved().find((item) => item.id === 'milk')?.parentId).toBe('c')
   })
 
   it('does not commit a cancelled drag, lost capture, Escape, or ordinary click jitter', async () => {
