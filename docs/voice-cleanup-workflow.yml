@@ -4,8 +4,6 @@ on:
   push:
     branches: [main]
     paths: ['data/voice-inbox/*.json']
-  schedule:
-    - cron: '*/5 * * * *'
   workflow_dispatch:
 permissions:
   contents: write
