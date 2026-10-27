@@ -16,7 +16,7 @@ import java.util.List;
 /** One normal action after launch: Stop submits to Claude and adds the result automatically. */
 public final class VoiceCaptureActivity extends Activity {
     static VoiceRecorder.Factory testRecorderFactory; // Debug-only, never selected by external intent extras.
-    static final String EXTRA_CAPTURE="voiceCaptureId",EXTRA_HISTORY="voiceHistory";
+    static final String EXTRA_CAPTURE="voiceCaptureId",EXTRA_HISTORY="voiceHistory",EXTRA_NOTE_AWARE="noteAware";
     private static final int MICROPHONE=702;
     private final Handler handler=new Handler(Looper.getMainLooper());
     private VoiceCaptureManager manager;
@@ -37,7 +37,7 @@ public final class VoiceCaptureActivity extends Activity {
         if(historyMode){history=Ui.column(this);body.addView(history);renderHistory();return;}
         try{
             captureId=state==null?MainActivity.nullable(getIntent().getStringExtra(EXTRA_CAPTURE)):state.getString(EXTRA_CAPTURE);
-            if(captureId==null)captureId=manager.create("shared".equals(getIntent().getStringExtra(NotesRepository.EXTRA_VAULT)),MainActivity.nullable(getIntent().getStringExtra("noteId")),MainActivity.nullable(getIntent().getStringExtra("projectId")));
+            if(captureId==null)captureId=manager.create("shared".equals(getIntent().getStringExtra(NotesRepository.EXTRA_VAULT)),MainActivity.nullable(getIntent().getStringExtra("noteId")),MainActivity.nullable(getIntent().getStringExtra("projectId")),getIntent().getBooleanExtra(EXTRA_NOTE_AWARE,false));
             JSONObject job=manager.snapshot(captureId);if(job==null)throw new IllegalArgumentException("Recording not found.");latest=job.optString("raw");permissionDenied=state!=null&&state.getBoolean("permissionDenied");
         }catch(Exception e){Ui.error(this,e);finish();return;}
         destination=Ui.muted(this,"");body.addView(destination);Ui.gap(body,24);
@@ -48,7 +48,7 @@ public final class VoiceCaptureActivity extends Activity {
         stop=Ui.button(this,"Stop",this::stopRecording);stop.setTag("voiceStop");stop.setMinHeight(Ui.dp(this,64));actionBar.addView(stop,new LinearLayout.LayoutParams(-1,-2));
         retry=Ui.button(this,"Try again",this::retry);retry.setTag("voiceRetry");actionBar.addView(retry,new LinearLayout.LayoutParams(-1,-2));
         cancel=Ui.button(this,"Cancel",()->{cancelRecorder();saveTranscript(true);try{manager.cancel(captureId);finish();}catch(Exception e){Ui.error(this,e);}});cancel.setTag("voiceCancel");actionBar.addView(cancel);
-        Ui.gap(body,16);body.addView(Ui.muted(this,"Stop sends this transcript to Claude and adds its checklist here automatically. Android’s speech provider may use the internet. Your original words stay saved."));refresh();
+        Ui.gap(body,16);body.addView(Ui.muted(this,manager.snapshot(captureId).optBoolean("noteAware")?"Say where things belong, like ‘add milk under Walmart’. Stop sends your words and this note only to Claude. It adds unchecked boxes; existing text, groups and checkmarks stay unchanged.":"Stop sends this transcript to Claude and adds its checklist here automatically. Android’s speech provider may use the internet. Your original words stay saved."));refresh();
     }
     private void startRecording(){
         JSONObject job=manager.snapshot(captureId);if(job==null||!AutoVoiceCore.canRecord(job)||!resumed||recording||stopping||leaving)return;

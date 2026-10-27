@@ -40,11 +40,11 @@ public class OneStopVoiceInstrumentedTest {
     }
     @After public void cleanup()throws Exception{waitProcess();VoiceCaptureActivity.testRecorderFactory=null;VoiceCaptureManager.testInstance=null;}
     static final class FakeRemote implements VoiceCaptureManager.Remote{
-        final Map<String,String> requests=new ConcurrentHashMap<>();boolean connected=true,ready=true,unavailable=false;int uploads;
+        final Map<String,String> requests=new ConcurrentHashMap<>();final Map<String,JSONObject> payloads=new ConcurrentHashMap<>();boolean connected=true,ready=true,unavailable=false;int uploads;JSONObject additions;
         public VaultConfig config(boolean shared){VaultConfig c=VaultConfig.defaults(shared);return new VaultConfig(c.owner,c.repo,c.branch,c.path,"fake-instrumentation-only");}
         public boolean connected(boolean shared){return connected;}
-        public void enqueue(VaultConfig config,JSONObject request)throws Exception{uploads++;requests.put(request.getString("id"),request.getString("transcript"));}
-        public JSONObject result(VaultConfig config,String id)throws Exception{if(!ready)return null;if(unavailable)return new JSONObject().put("id",id).put("status","unavailable").put("reason","not-configured");return new JSONObject().put("id",id).put("status","ready").put("draft",CaptureCore.fromReview("Shopping","Walmart\n  Milk\n  Eggs"));}
+        public void enqueue(VaultConfig config,JSONObject request)throws Exception{uploads++;requests.put(request.getString("id"),request.getString("transcript"));payloads.put(request.getString("id"),request);}
+        public JSONObject result(VaultConfig config,String id)throws Exception{if(!ready)return null;if(unavailable)return new JSONObject().put("id",id).put("status","unavailable").put("reason","not-configured");return new JSONObject().put("id",id).put("status","ready").put("draft",additions!=null?additions:CaptureCore.fromReview("Shopping","Walmart\n  Milk\n  Eggs"));}
     }
     private void waitProcess()throws Exception{CountDownLatch done=new CountDownLatch(1);manager.process(done::countDown);assertTrue(done.await(15,TimeUnit.SECONDS));InstrumentationRegistry.getInstrumentation().waitForIdleSync();}
     private static View tagged(View root,String tag){if(tag.equals(root.getTag()))return root;if(root instanceof ViewGroup)for(int i=0;i<((ViewGroup)root).getChildCount();i++){View result=tagged(((ViewGroup)root).getChildAt(i),tag);if(result!=null)return result;}return null;}
@@ -70,5 +70,20 @@ public class OneStopVoiceInstrumentedTest {
     @Test public void offlineStopSurvivesManagerReloadAndResumesWithoutAnotherButton()throws Exception{
         remote.connected=false;String id=manager.create(false,null,null);manager.stop(id,"Saved offline");waitProcess();assertEquals(0,remote.uploads);assertEquals("waiting-connection",manager.snapshot(id).getString("status"));
         manager=new VoiceCaptureManager(context,new SecureStore(context,"voice-auto-test-v1"),remote);VoiceCaptureManager.testInstance=manager;remote.connected=true;waitProcess();assertEquals("applied",manager.snapshot(id).getString("status"));assertEquals(1,remote.uploads);
+    }
+    @Test public void talkButtonOnAnyNoteUsesItsStructureAndAddsWithoutTouchingOriginals()throws Exception{
+        String[] ids=new String[3];personal.edit(ws->{ids[0]=NotesCore.addNote(ws,null,null,"Shopping","Preserve body",null,NOW);ids[1]=NotesCore.addChecklistItem(ws,ids[0],"Walmart",null,null,NOW);ids[2]=NotesCore.addChecklistItem(ws,ids[0],"Fish",ids[1],null,NOW);NotesCore.setChecklistChecked(ws,ids[0],ids[2],true,NOW);NotesCore.addNote(ws,null,null,"Other note","NEVER TRANSMIT",null,NOW);});
+        JSONObject before=NotesCore.findNote(personal.snapshot(),ids[0]);String sharedBefore=shared.snapshot().toString();remote.additions=new JSONObject().put("additions",new JSONArray().put(new JSONObject().put("text","Milk").put("parent","existing:"+ids[1])).put(new JSONObject().put("text","Brand").put("parent","new:0")));
+        try(ActivityScenario<NoteEditorActivity> editor=ActivityScenario.launch(new Intent(context,NoteEditorActivity.class).putExtra("noteId",ids[0]))){editor.onActivity(activity->{View button=tagged(activity.getWindow().getDecorView(),"noteTalkClaude");assertNotNull(button);assertTrue(button.getMinimumHeight()>=Ui.dp(activity,48));button.performClick();});InstrumentationRegistry.getInstrumentation().waitForIdleSync();}
+        assertTrue(started.get());String capture=manager.jobs().get(0).getString("id");
+        try(ActivityScenario<VoiceCaptureActivity> recorder=ActivityScenario.launch(new Intent(context,VoiceCaptureActivity.class).putExtra(VoiceCaptureActivity.EXTRA_CAPTURE,capture))){recorder.onActivity(activity->tagged(activity.getWindow().getDecorView(),"voiceStop").performClick());waitProcess();}
+        assertEquals("applied",manager.snapshot(capture).getString("status"));assertEquals(1,remote.uploads);JSONObject payload=remote.payloads.values().iterator().next();assertEquals("append-to-note",payload.getString("mode"));assertFalse(payload.toString().contains("NEVER TRANSMIT"));assertEquals(2,payload.getJSONObject("note").getJSONArray("items").length());
+        JSONObject actual=NotesCore.findNote(personal.snapshot(),ids[0]);assertEquals("Preserve body",actual.getString("body"));for(int i=0;i<2;i++)assertEquals(before.getJSONArray("checklist").get(i).toString(),actual.getJSONArray("checklist").get(i).toString());assertEquals(4,actual.getJSONArray("checklist").length());assertEquals(ids[1],actual.getJSONArray("checklist").getJSONObject(2).getString("parentId"));assertEquals(sharedBefore,shared.snapshot().toString());
+    }
+    @Test public void sharedTalkQueuesOnlySelectedNoteAndStopsOnStaleGroup()throws Exception{
+        String[] ids=new String[2];shared.edit(ws->{ids[0]=NotesCore.addNote(ws,null,null,"Shared list","",null,NOW);ids[1]=NotesCore.addChecklistItem(ws,ids[0],"Costco",null,null,NOW);});String before=personal.snapshot().toString();remote.ready=false;
+        remote.additions=new JSONObject().put("additions",new JSONArray().put(new JSONObject().put("text","Turkey").put("parent","existing:"+ids[1])));
+        String capture=manager.create(true,ids[0],null,true);manager.stop(capture,"Add turkey to Costco");waitProcess();JSONObject payload=remote.payloads.values().iterator().next();assertEquals(ids[0],payload.getJSONObject("note").getString("id"));
+        shared.edit(ws->NotesCore.updateChecklistText(ws,ids[0],ids[1],"Changed group",NOW));String changed=shared.snapshot().toString();remote.ready=true;waitProcess();assertEquals("failed",manager.snapshot(capture).getString("status"));assertEquals(changed,shared.snapshot().toString());assertEquals(before,personal.snapshot().toString());assertEquals("Add turkey to Costco",manager.snapshot(capture).getString("raw"));
     }
 }

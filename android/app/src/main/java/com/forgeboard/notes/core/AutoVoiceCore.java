@@ -28,6 +28,7 @@ public final class AutoVoiceCore {
         if(!job.has("stoppedAt")||!pending(job))throw new IllegalArgumentException("This recording was not submitted or was cancelled.");
         String noteId=value(job,"noteId");JSONObject note=noteId==null?null:NotesCore.findNote(workspace,noteId);
         if(note!=null&&!Objects.equals(value(note,"projectId"),value(job,"projectId")))throw new IllegalArgumentException("The original note moved to another project. Your transcript is saved; no other project was changed.");
+        if(job.optBoolean("noteAware"))return NoteVoiceCore.apply(workspace,job,proposal,now);
         return CaptureCore.apply(workspace,noteId,value(job,"projectId"),job.getString("id"),proposal,now);
     }
     public static String failure(JSONObject response){

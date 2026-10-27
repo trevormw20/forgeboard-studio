@@ -6,6 +6,8 @@ import android.os.Handler;
 import android.os.Looper;
 import com.forgeboard.notes.core.AutoVoiceCore;
 import com.forgeboard.notes.core.CaptureCore;
+import com.forgeboard.notes.core.NoteVoiceCore;
+import com.forgeboard.notes.core.NotesCore;
 import org.json.*;
 import java.util.*;
 import java.util.concurrent.Executors;
@@ -53,14 +55,22 @@ final class VoiceCaptureManager {
     synchronized JSONObject snapshot(String id){JSONObject job=find(state,id);return job==null?null:copy(job);}
     synchronized List<JSONObject> jobs(){List<JSONObject> jobs=new ArrayList<>();JSONArray all=state.optJSONArray("jobs");if(all!=null)for(int i=all.length()-1;i>=0;i--){JSONObject job=all.optJSONObject(i);if(job!=null)jobs.add(copy(job));}return jobs;}
     synchronized String create(boolean shared,String note,String project)throws Exception{
-        writable();JSONObject next=copy(state),job=AutoVoiceCore.create(shared,note,project,remote.config(false).identity(),remote.config(shared).identity(),Ui.now());next.getJSONArray("jobs").put(job);store.write(next);state=next;changed();return job.getString("id");
+        return create(shared,note,project,false);
+    }
+    synchronized String create(boolean shared,String note,String project,boolean noteAware)throws Exception{
+        writable();JSONObject next=copy(state),job=AutoVoiceCore.create(shared,note,project,remote.config(false).identity(),remote.config(shared).identity(),Ui.now());
+        if(noteAware){NoteVoiceCore.context(NotesCore.findNote(NotesRepository.get(context,shared).snapshot(),note));job.put("noteAware",true);}
+        next.getJSONArray("jobs").put(job);store.write(next);state=next;changed();return job.getString("id");
     }
     private synchronized void change(String id,Change action)throws Exception{
         writable();JSONObject next=copy(state),job=find(next,id);if(job==null)throw new IllegalArgumentException("Recording not found.");action.apply(job);
         if(next.toString().equals(state.toString()))return;job.put("updatedAt",Ui.now());store.write(next);state=next;changed();
     }
     void transcript(String id,String raw,boolean paused)throws Exception{change(id,job->{if(AutoVoiceCore.canRecord(job))job.put("raw",raw).put("status",paused?"paused":"recording");});}
-    void stop(String id,String raw)throws Exception{change(id,job->AutoVoiceCore.stop(job,raw,Ui.now()));process(null);NotesSyncJobService.scheduleSoon(context);}
+    void stop(String id,String raw)throws Exception{change(id,job->{
+        if(AutoVoiceCore.canRecord(job)&&job.optBoolean("noteAware"))job.put("noteContext",NoteVoiceCore.context(NotesCore.findNote(NotesRepository.get(context,job.optBoolean("shared")).snapshot(),job.optString("noteId"))));
+        AutoVoiceCore.stop(job,raw,Ui.now());
+    });process(null);NotesSyncJobService.scheduleSoon(context);}
     void cancel(String id)throws Exception{change(id,job->{if(AutoVoiceCore.canRecord(job))job.put("status","cancelled");});}
     void retry(String id)throws Exception{change(id,job->AutoVoiceCore.retry(job,Ui.now()));process(null);NotesSyncJobService.scheduleSoon(context);}
     synchronized boolean needsRetry(){for(JSONObject job:jobs())if(AutoVoiceCore.pending(job)&&remote.connected(false)&&remote.connected(job.optBoolean("shared")))return true;return false;}
@@ -90,14 +100,17 @@ final class VoiceCaptureManager {
             JSONObject proposal=job.optJSONObject("proposal");
             if(proposal==null){
                 if(!job.optBoolean("uploaded")){
-                    remote.enqueue(personal,new JSONObject().put("version",1).put("id",job.getString("requestId")).put("createdAt",job.getString("stoppedAt")).put("transcript",job.getString("raw")));
+                    JSONObject request=new JSONObject().put("version",1).put("id",job.getString("requestId")).put("createdAt",job.getString("stoppedAt")).put("transcript",job.getString("raw"));
+                    if(job.optBoolean("noteAware"))request.put("mode","append-to-note").put("note",job.getJSONObject("noteContext"));
+                    remote.enqueue(personal,request);
                     change(id,item->item.put("uploaded",true).put("status","waiting"));
                 }
                 JSONObject response=remote.result(personal,job.getString("requestId"));
                 if(response==null){change(id,item->{item.put("status","waiting");item.remove("error");});return;}
                 if(!job.getString("requestId").equals(response.optString("id")))throw new IllegalArgumentException("The Claude result did not match this recording. Your transcript is preserved.");
                 if(!"ready".equals(response.optString("status"))){fail(id,AutoVoiceCore.failure(response),true);return;}
-                proposal=CaptureCore.validate(response.getJSONObject("draft"));JSONObject validated=proposal;
+                change(id,item->item.put("remoteFinished",true));
+                proposal=job.optBoolean("noteAware")?NoteVoiceCore.validate(response.getJSONObject("draft"),job.getJSONObject("noteContext")):CaptureCore.validate(response.getJSONObject("draft"));JSONObject validated=proposal;
                 change(id,item->item.put("proposal",validated).put("status","applying").put("remoteFinished",true));
             }
             // Notes commit and queue completion are separate stores. Stable IDs make crash replay safe.
@@ -113,6 +126,6 @@ final class VoiceCaptureManager {
         }
     }
     private void fail(String id,String message,boolean finished)throws Exception{change(id,job->job.put("status","failed").put("error",message).put("remoteFinished",finished));}
-    private void failQuietly(String id,String message){try{fail(id,message,false);}catch(Exception ignored){}}
+    private void failQuietly(String id,String message){try{change(id,job->job.put("status","failed").put("error",message));}catch(Exception ignored){}}
     private void changed(){main.post(()->context.sendBroadcast(new Intent(NotesRepository.ACTION_CHANGED).setPackage(context.getPackageName())));}
 }
