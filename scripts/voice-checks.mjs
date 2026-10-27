@@ -29,7 +29,7 @@ test('provider diagnostics expose only safe categories, never echoed content', a
 test('only sends explicit transcript, with fixed endpoint and no tools; requires complete response', async () => {
   let sent;
   const fetcher = async (url, options) => { assert.equal(url, 'https://api.anthropic.com/v1/messages'); sent = JSON.parse(options.body); return { ok: true, json: async () => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: '{"title":"Groceries","items":[{"text":"Fish","depth":0}]}' }] }) }; };
-  assert.equal((await clean(request, { key: 'fake', fetcher })).status, 'ready');
+  assert.equal((await clean(request, { key: 'fake', workspaceId: 'wrkspc_test', fetcher: (url, options) => { assert.equal(options.headers['anthropic-workspace-id'], 'wrkspc_test'); return fetcher(url, options); } })).status, 'ready');
   assert.equal(sent.model, 'claude-haiku-4-5'); assert.equal(sent.tools, undefined); assert.equal(JSON.parse(sent.messages[0].content).transcript, request.transcript);
   assert.equal((await clean(request, { key: 'fake', fetcher: async () => ({ ok: true, json: async () => ({ stop_reason: 'max_tokens' }) }) })).status, 'unavailable');
 });

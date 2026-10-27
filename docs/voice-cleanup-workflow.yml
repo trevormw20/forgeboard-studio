@@ -35,6 +35,7 @@ jobs:
       - name: Organize explicitly submitted transcripts (never ordinary notes)
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_WORKSPACE_ID: ${{ secrets.ANTHROPIC_WORKSPACE_ID }}
           ANTHROPIC_VOICE_MODEL: ${{ vars.ANTHROPIC_VOICE_MODEL }}
         run: node processor/scripts/voice-cleanup.mjs
       - name: Save review drafts without changing any notes
