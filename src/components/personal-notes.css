@@ -105,6 +105,10 @@
 .pn-checklist-preview input { flex-shrink: 0; width: 16px; height: 16px; margin: 0; accent-color: var(--note-color); }
 .pn-checklist-preview label span { min-width: 0; overflow-wrap: anywhere; }
 .pn-checklist-preview label.is-checked span { text-decoration: line-through; color: #8c9aaf; }
+.pn-checklist-preview label.is-checked-section { background: #101824; border-radius: 4px; }
+.pn-checklist-preview label.is-checked input { accent-color: #79968d; }
+.pn-checklist-checked-divider { display: flex; align-items: center; min-height: 27px; margin-top: 10px; padding: 5px 7px; border-top: 1px solid #465268; border-radius: 6px 6px 0 0; color: #9aa9be; background: #101824; font-size: 9px; font-weight: 600; letter-spacing: .2px; }
+.pn-checklist-preview label.is-checked-section:hover, .pn-checklist-preview label.is-checked-section:focus-within { background: #233044; }
 .pn-checklist-preview small { display: block; margin-top: 8px; font-size: 10px; color: #98a9c0; }
 .pn-body-label > textarea.pn-body-with-checklist { min-height: 68px; }
 @media (max-width: 600px) { .pn-checklist-preview label { min-height: 44px; } }

@@ -4,7 +4,7 @@ import type { NoteChecklistItem, PersonalNote } from '../types'
 import { createPersonalNote, editPersonalNote } from './personalNotes'
 import { mergeWorkspaces } from './merge'
 import {
-  addChecklistItem, canMoveChecklistItem, deletedChecklistRoots, displayChecklist, editChecklistItem, moveChecklistItem, orderedChecklist,
+  addChecklistItem, canMoveChecklistItem, checklistCompletionSections, deletedChecklistRoots, displayChecklist, editChecklistItem, moveChecklistItem, orderedChecklist,
   removeChecklistItem, repositionChecklistItem, restoreChecklistItem, toggleChecklistItem, validateNoteChecklist,
 } from './noteChecklist'
 
@@ -20,6 +20,81 @@ function fixture() {
 const checklist = (workspace: ReturnType<typeof fixture>) => workspace.personalNotes![0].checklist!
 const rows = (items: NoteChecklistItem[]) => orderedChecklist(items).map(({ item, depth }) => [item.id, depth])
 const visibleRows = (items: NoteChecklistItem[]) => displayChecklist(items).map(({ item, depth }) => [item.id, depth])
+
+describe('checklist completion section presentation', () => {
+  function items(entries: [id: string, parentId?: string, checked?: boolean][]): NoteChecklistItem[] {
+    return entries.map(([id, parentId, checked], order) => ({ id, parentId, text: id, order, createdAt: start, updatedAt: start, completedAt: checked ? later : undefined }))
+  }
+
+  function sections(checklistItems: NoteChecklistItem[]) {
+    const flattened = displayChecklist(checklistItems), metadata = checklistCompletionSections(flattened)
+    return flattened.map(({ item }) => [item.id, metadata.get(item.id)?.inCheckedSection, metadata.get(item.id)?.startsCheckedSection])
+  }
+
+  it('starts one checked region per sibling group at root, child, and grandchild levels', () => {
+    const checklistItems = items([
+      ['a'], ['a-done', 'a', true], ['a-open', 'a'],
+      ['g-done', 'a-open', true], ['g-open', 'a-open'], ['a-done-two', 'a', true],
+      ['b'], ['b-done', 'b', true], ['b-open', 'b'],
+      ['root-done', undefined, true], ['root-done-two', undefined, true],
+    ])
+    const flattened = displayChecklist(checklistItems), before = structuredClone(checklistItems), rowsBefore = structuredClone(flattened)
+    expect(sections(checklistItems)).toEqual([
+      ['a', false, false], ['a-open', false, false], ['g-open', false, false],
+      ['g-done', true, true], ['a-done', true, true], ['a-done-two', true, false],
+      ['b', false, false], ['b-open', false, false], ['b-done', true, true],
+      ['root-done', true, true], ['root-done-two', true, false],
+    ])
+    checklistCompletionSections(flattened)
+    expect(flattened).toEqual(rowsBefore)
+    expect(checklistItems).toEqual(before)
+  })
+
+  it('dims a checked parent branch without checking unfinished descendants or repeating dividers', () => {
+    const checklistItems = items([
+      ['open'], ['done', undefined, true], ['child-open', 'done'], ['child-done', 'done', true],
+      ['grand-open', 'child-open'], ['grand-done', 'child-open', true],
+    ])
+    expect(sections(checklistItems)).toEqual([
+      ['open', false, false], ['done', true, true], ['child-open', true, false],
+      ['grand-open', true, false], ['grand-done', true, false], ['child-done', true, false],
+    ])
+    expect(checklistItems.filter((item) => !item.completedAt).map((item) => item.id)).toEqual(['open', 'child-open', 'grand-open'])
+  })
+
+  it('keeps unrelated parent groups at the same depth independent', () => {
+    expect(sections(items([
+      ['a'], ['a-done', 'a', true], ['a-leaf', 'a-done', true],
+      ['b'], ['b-done', 'b', true], ['c'], ['c-open', 'c'], ['c-done', 'c', true],
+    ]))).toEqual([
+      ['a', false, false], ['a-done', true, true], ['a-leaf', true, false],
+      ['b', false, false], ['b-done', true, true],
+      ['c', false, false], ['c-open', false, false], ['c-done', true, true],
+    ])
+  })
+
+  it('supports empty, all-open, and all-checked lists with a single all-checked divider', () => {
+    expect(checklistCompletionSections([])).toEqual(new Map())
+    expect(sections(items([['a'], ['b', 'a'], ['c']]))).toEqual([
+      ['a', false, false], ['b', false, false], ['c', false, false],
+    ])
+    expect(sections(items([['a', undefined, true], ['b', 'a', true], ['c', undefined, true]]))).toEqual([
+      ['a', true, true], ['b', true, false], ['c', true, false],
+    ])
+  })
+
+  it('uses filtered display rows without mutating or exposing checked trash', () => {
+    const checklistItems = items([['open'], ['trash', undefined, true], ['done', undefined, true]])
+    checklistItems[1].deletedAt = latest
+    const flattened = displayChecklist(checklistItems), metadata = checklistCompletionSections(flattened)
+    expect([...metadata]).toEqual([
+      ['open', { inCheckedSection: false, startsCheckedSection: false }],
+      ['done', { inCheckedSection: true, startsCheckedSection: true }],
+    ])
+    expect(metadata.has('trash')).toBe(false)
+    expect(checklistItems[1].deletedAt).toBe(latest)
+  })
+})
 
 describe('note-internal checklists', () => {
   it('nests and moves independent checkboxes and preserves text alongside the list', () => {

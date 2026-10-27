@@ -1,7 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react'
-import { ArrowDown, ArrowUp, ChevronDown, ChevronLeft, ChevronRight, CornerDownRight, GripVertical, ListChecks, MoreHorizontal, Plus, Trash2, Undo2, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, Check, ChevronDown, ChevronLeft, ChevronRight, CornerDownRight, GripVertical, ListChecks, MoreHorizontal, Plus, Trash2, Undo2, X } from 'lucide-react'
 import type { useForgeboard } from '../hooks/useForgeboard'
-import { canMoveChecklistItem, deletedChecklistRoots, displayChecklist } from '../lib/noteChecklist'
+import { canMoveChecklistItem, checklistCompletionSections, deletedChecklistRoots, displayChecklist } from '../lib/noteChecklist'
 import { checklistDragBranch, projectChecklistDrop, type ChecklistDrop } from '../lib/checklistDrag'
 import type { PersonalNote } from '../types'
 import './note-checklist.css'
@@ -29,6 +29,7 @@ export function NoteChecklist({ forge, note, autoFocus = false, focusItemId }: {
   const [lastDeleted, setLastDeleted] = useState<{ id: string; text: string }>()
   const items = note.checklist ?? []
   const rows = useMemo(() => displayChecklist(note.checklist ?? []), [note.checklist])
+  const completionSections = useMemo(() => checklistCompletionSections(rows), [rows])
   const liveRows = useRef(rows)
   liveRows.current = rows
   const draggedIds = useMemo(() => dragging ? checklistDragBranch(rows, dragging.id) : new Set<string>(), [rows, dragging])
@@ -257,9 +258,11 @@ export function NoteChecklist({ forge, note, autoFocus = false, focusItemId }: {
       return visible.map(({ item, depth }) => {
       const name = nameOf(item.text)
       const expanded = optionsId === item.id
+      const section = completionSections.get(item.id)
       const projection = dragging?.projection
       const dropBefore = projection?.markerBeforeId === item.id, dropAfter = projection?.markerAfterId === item.id
-      return <li key={item.id} ref={(element) => { if (element) rowElements.current.set(item.id, element); else rowElements.current.delete(item.id) }} data-checklist-item-id={item.id} data-checklist-drop-before={dropBefore ? '' : undefined} data-checklist-drop-after={dropAfter ? '' : undefined} className={`nc-item ${depth === 0 ? 'nc-root' : ''} ${item.completedAt ? 'is-complete' : ''} ${draggedIds.has(item.id) ? 'is-dragging-branch' : ''} ${dragging?.id === item.id && !dragging.reordering ? 'is-sliding' : ''}`} aria-label={`Checklist item: ${name}`} aria-level={depth + 1} style={{ '--check-depth': depth, '--drop-depth': projection?.depth ?? depth, '--check-slide': dragging?.id === item.id ? `${dragging.x}px` : '0px' } as CSSProperties}>
+      return <li key={item.id} ref={(element) => { if (element) rowElements.current.set(item.id, element); else rowElements.current.delete(item.id) }} data-checklist-item-id={item.id} data-checklist-drop-before={dropBefore ? '' : undefined} data-checklist-drop-after={dropAfter ? '' : undefined} className={`nc-item ${depth === 0 ? 'nc-root' : ''} ${item.completedAt ? 'is-complete' : ''} ${section?.inCheckedSection ? 'is-checked-section' : ''} ${section?.startsCheckedSection ? 'starts-checked-section' : ''} ${draggedIds.has(item.id) ? 'is-dragging-branch' : ''} ${dragging?.id === item.id && !dragging.reordering ? 'is-sliding' : ''}`} aria-label={`Checklist item: ${name}`} aria-level={depth + 1} style={{ '--check-depth': depth, '--drop-depth': projection?.depth ?? depth, '--check-slide': dragging?.id === item.id ? `${dragging.x}px` : '0px' } as CSSProperties}>
+        {section?.startsCheckedSection && <div className="nc-checked-divider" role="separator" aria-label={depth === 0 ? 'Checked items' : 'Checked items in this group'}><Check size={13} aria-hidden="true" /><span>{depth === 0 ? 'Checked items' : 'Checked'}</span></div>}
         {(dropBefore || dropAfter) && <div className={`nc-drop-marker ${dropAfter ? 'is-after' : ''}`} aria-hidden="true"><span>{projection?.label}</span></div>}
         <div className="nc-row">
           <button type="button" className="nc-grip" aria-label={`Move ${name}`} aria-describedby={descriptionId} title="Drag up or down to reorder; right or left to change nesting. Arrow keys also move this item." onKeyDown={(event) => gripKey(event, item.id)} onPointerDown={(event) => startDrag(event, item.id)} onPointerMove={updateDrag} onPointerUp={finishDrag} onPointerCancel={(event) => finishDrag(event, true)} onLostPointerCapture={(event) => finishDrag(event, true)}><GripVertical size={18} /></button>

@@ -86,6 +86,7 @@ function pointerDrag(name: string, from: { x: number; y: number }, to: { x: numb
 describe('Note checklist', () => {
   it('moves checked roots below open roots without rewriting canonical order or replacing the focused input', async () => {
     await start([checklistItem('a', 'Apples', undefined, 0), checklistItem('b', 'Bread', undefined, 1), checklistItem('c', 'Coffee', undefined, 2)])
+    expect(document.querySelector('.nc-checked-divider')).toBeNull()
     const originalOrder = saved().map(({ id, order, parentId }) => ({ id, order, parentId }))
     const input = screen.getByRole('textbox', { name: 'Edit Apples' }) as HTMLInputElement
     const checkbox = screen.getByRole('checkbox', { name: 'Apples' })
@@ -93,6 +94,10 @@ describe('Note checklist', () => {
     input.setSelectionRange(3, 3)
     fireEvent.click(checkbox)
     expect(rowNames()).toEqual(['Bread', 'Coffee', 'Apples'])
+    expect(document.querySelectorAll('.nc-checked-divider')).toHaveLength(1)
+    expect(document.querySelector('.nc-checked-divider')?.textContent).toContain('Checked items')
+    expect(screen.getByRole('listitem', { name: 'Checklist item: Apples' }).classList.contains('is-checked-section')).toBe(true)
+    expect(screen.getByRole('listitem', { name: 'Checklist item: Bread' }).classList.contains('is-checked-section')).toBe(false)
     expect(screen.getByRole('textbox', { name: 'Edit Apples' })).toBe(input)
     expect(screen.getByRole('checkbox', { name: 'Apples' })).toBe(checkbox)
     expect(document.activeElement).toBe(input)
@@ -100,8 +105,77 @@ describe('Note checklist', () => {
     expect(saved().map(({ id, order, parentId }) => ({ id, order, parentId }))).toEqual(originalOrder)
     fireEvent.click(checkbox)
     expect(rowNames()).toEqual(['Apples', 'Bread', 'Coffee'])
+    expect(document.querySelector('.nc-checked-divider')).toBeNull()
+    expect(screen.getByRole('listitem', { name: 'Checklist item: Apples' }).classList.contains('is-checked-section')).toBe(false)
     expect(document.activeElement).toBe(input)
     expect(saved().map(({ id, order, parentId }) => ({ id, order, parentId }))).toEqual(originalOrder)
+  })
+
+  it('separates checked roots with one divider inside the first completed row without adding fake checklist rows', async () => {
+    const completedAt = '2026-10-27T12:00:00Z'
+    await start([
+      { ...checklistItem('done-first', 'Done first', undefined, 0), completedAt },
+      checklistItem('open', 'Still open', undefined, 1),
+      { ...checklistItem('done-last', 'Done last', undefined, 2), completedAt },
+    ])
+    expect(rowNames()).toEqual(['Still open', 'Done first', 'Done last'])
+    expect(document.querySelectorAll('.nc-checked-divider')).toHaveLength(1)
+    const first = screen.getByRole('listitem', { name: 'Checklist item: Done first' })
+    const last = screen.getByRole('listitem', { name: 'Checklist item: Done last' })
+    expect(first.querySelector('.nc-checked-divider')?.textContent).toContain('Checked items')
+    expect(last.querySelector('.nc-checked-divider')).toBeNull()
+    expect(first.classList.contains('is-checked-section')).toBe(true)
+    expect(last.classList.contains('is-checked-section')).toBe(true)
+    expect(screen.getByRole('list', { name: 'Checklist items' }).children).toHaveLength(3)
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Done first' }))
+    expect(first.querySelector('.nc-checked-divider')).toBeNull()
+    expect(first.classList.contains('is-checked-section')).toBe(false)
+    expect(last.querySelector('.nc-checked-divider')?.textContent).toContain('Checked items')
+  })
+
+  it('gives checked children a separate lower section within their unfinished parent without changing hierarchy', async () => {
+    const completedAt = '2026-10-27T12:00:00Z'
+    await start([
+      checklistItem('store', 'Walmart'),
+      { ...checklistItem('fish', 'Fish', 'store', 0), completedAt },
+      checklistItem('salmon', 'Salmon', 'fish'),
+      checklistItem('milk', 'Milk', 'store', 1),
+      checklistItem('other', 'Costco', undefined, 1),
+    ])
+    expect(rowNames()).toEqual(['Walmart', 'Milk', 'Fish', 'Salmon', 'Costco'])
+    const fish = screen.getByRole('listitem', { name: 'Checklist item: Fish' })
+    const salmon = screen.getByRole('listitem', { name: 'Checklist item: Salmon' })
+    expect(document.querySelectorAll('.nc-checked-divider')).toHaveLength(1)
+    expect(fish.querySelector('.nc-checked-divider')?.textContent).toBe('Checked')
+    expect(fish.getAttribute('aria-level')).toBe('2')
+    expect(salmon.getAttribute('aria-level')).toBe('3')
+    expect(fish.classList.contains('is-checked-section')).toBe(true)
+    expect(salmon.classList.contains('is-checked-section')).toBe(true)
+    expect(salmon.classList.contains('is-complete')).toBe(false)
+    for (const name of ['Walmart', 'Milk', 'Costco']) expect(screen.getByRole('listitem', { name: `Checklist item: ${name}` }).classList.contains('is-checked-section')).toBe(false)
+    expect(saved().find((item) => item.id === 'salmon')?.parentId).toBe('fish')
+    expect((screen.getByRole('checkbox', { name: 'Salmon' }) as HTMLInputElement).checked).toBe(false)
+  })
+
+  it('keeps a checked parent branch in one lower section without dimming unfinished descendants as if they were checked', async () => {
+    const completedAt = '2026-10-27T12:00:00Z'
+    await start([
+      { ...checklistItem('store', 'Walmart'), completedAt },
+      checklistItem('fish', 'Fish', 'store'),
+      { ...checklistItem('salmon', 'Salmon', 'fish'), completedAt },
+      checklistItem('other', 'Costco', undefined, 1),
+    ])
+    expect(rowNames()).toEqual(['Costco', 'Walmart', 'Fish', 'Salmon'])
+    expect(document.querySelectorAll('.nc-checked-divider')).toHaveLength(1)
+    expect(screen.getByRole('listitem', { name: 'Checklist item: Walmart' }).querySelector('.nc-checked-divider')?.textContent).toContain('Checked items')
+    for (const name of ['Walmart', 'Fish', 'Salmon']) expect(screen.getByRole('listitem', { name: `Checklist item: ${name}` }).classList.contains('is-checked-section')).toBe(true)
+    const fish = screen.getByRole('listitem', { name: 'Checklist item: Fish' })
+    expect(fish.classList.contains('is-complete')).toBe(false)
+    expect((screen.getByRole('checkbox', { name: 'Fish' }) as HTMLInputElement).checked).toBe(false)
+    fireEvent.change(screen.getByRole('textbox', { name: 'Edit Fish' }), { target: { value: 'Fish fillets' } })
+    expect(saved().find((item) => item.id === 'fish')).toMatchObject({ text: 'Fish fillets', parentId: 'store' })
+    expect(saved().find((item) => item.id === 'fish')?.completedAt).toBeUndefined()
+    expect(document.querySelectorAll('.nc-checked-divider')).toHaveLength(1)
   })
 
   it('moves completed parent subtrees together and sorts completed children only within their own parent', async () => {

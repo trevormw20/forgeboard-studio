@@ -116,6 +116,41 @@ describe('Personal notes', () => {
     expect(redo.disabled).toBe(true)
   })
 
+  it('adds and removes the checked-items section through the top Undo and Redo controls without replacing checklist inputs', async () => {
+    cached = seed()
+    const at = '2026-10-27T18:00:00Z'
+    cached.personalNotes = [{ id: 'groceries', projectId: 'snail', title: '', body: '', createdAt: at, updatedAt: at, checklist: [
+      { id: 'apples', text: 'Apples', order: 0, createdAt: at, updatedAt: at },
+      { id: 'bread', text: 'Bread', order: 1, createdAt: at, updatedAt: at },
+    ] }]
+    render(<Harness />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Open note: Apples' }))
+    const editor = screen.getByRole('region', { name: 'Note editor' })
+    const input = within(editor).getByRole('textbox', { name: 'Edit Apples' }) as HTMLInputElement
+    const checkbox = within(editor).getByRole('checkbox', { name: 'Apples' }) as HTMLInputElement
+    input.focus()
+    input.setSelectionRange(2, 2)
+    expect(editor.querySelector('.nc-checked-divider')).toBeNull()
+    fireEvent.click(checkbox)
+    expect(checkbox.checked).toBe(true)
+    expect(editor.querySelectorAll('.nc-checked-divider')).toHaveLength(1)
+    expect(within(editor).getAllByRole('listitem').map((row) => row.getAttribute('aria-label'))).toEqual(['Checklist item: Bread', 'Checklist item: Apples'])
+    expect(document.activeElement).toBe(input)
+    expect(input.selectionStart).toBe(2)
+    fireEvent.click(within(editor).getByRole('button', { name: 'Undo note edit' }))
+    expect(checkbox.checked).toBe(false)
+    expect(editor.querySelector('.nc-checked-divider')).toBeNull()
+    expect(within(editor).getAllByRole('listitem').map((row) => row.getAttribute('aria-label'))).toEqual(['Checklist item: Apples', 'Checklist item: Bread'])
+    expect(within(editor).getByRole('textbox', { name: 'Edit Apples' })).toBe(input)
+    fireEvent.click(within(editor).getByRole('button', { name: 'Redo note edit' }))
+    expect(checkbox.checked).toBe(true)
+    expect(editor.querySelectorAll('.nc-checked-divider')).toHaveLength(1)
+    expect(within(editor).getByRole('textbox', { name: 'Edit Apples' })).toBe(input)
+    expect(savedNotes()[0].checklist?.find((item) => item.id === 'apples')?.completedAt).toBeTruthy()
+    expect(savedNotes()[0].checklist?.map(({ id, order }) => ({ id, order }))).toEqual([{ id: 'apples', order: 0 }, { id: 'bread', order: 1 }])
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
   it('disables history while a checkbox draft needs recovery so undo cannot discard unsaved text', async () => {
     cached = seed()
     const at = '2026-10-27T18:00:00Z'
@@ -400,16 +435,47 @@ describe('Personal notes', () => {
     render(<Harness />)
     const open = await screen.findByRole('button', { name: 'Open note: First item' })
     const card = within(open.closest('article')!)
+    expect(open.closest('article')!.querySelector('.pn-checklist-checked-divider')).toBeNull()
     const checkbox = card.getByRole('checkbox', { name: 'Check First item' })
     checkbox.focus()
     fireEvent.click(checkbox)
     expect(card.getAllByRole('checkbox').map((item) => item.getAttribute('aria-label'))).toEqual(['Check Second item', 'Check Third item', 'Check First item'])
+    expect(open.closest('article')!.querySelectorAll('.pn-checklist-checked-divider')).toHaveLength(1)
+    expect(open.closest('article')!.querySelector('.pn-checklist-checked-divider')?.textContent).toContain('Checked items')
+    expect(checkbox.closest('label')!.classList.contains('is-checked-section')).toBe(true)
+    expect(card.getByRole('checkbox', { name: 'Check Second item' }).closest('label')!.classList.contains('is-checked-section')).toBe(false)
     expect(card.getByRole('checkbox', { name: 'Check First item' })).toBe(checkbox)
     expect(document.activeElement).toBe(checkbox)
     expect(screen.getByRole('button', { name: 'Open note: First item' })).toBe(open)
     expect(savedNotes()[0].checklist?.map(({ id, order }) => ({ id, order }))).toEqual([{ id: 'first', order: 0 }, { id: 'second', order: 1 }, { id: 'third', order: 2 }])
     fireEvent.click(checkbox)
     expect(card.getAllByRole('checkbox').map((item) => item.getAttribute('aria-label'))).toEqual(['Check First item', 'Check Second item', 'Check Third item'])
+    expect(open.closest('article')!.querySelector('.pn-checklist-checked-divider')).toBeNull()
+    expect(checkbox.closest('label')!.classList.contains('is-checked-section')).toBe(false)
+  })
+
+  it('shows one checked section for a completed note-card branch while preserving unfinished descendants', async () => {
+    cached = seed()
+    const at = '2026-10-27T18:00:00Z'
+    cached.personalNotes = [{ id: 'preview-branch', projectId: 'snail', title: 'Groceries', body: '', createdAt: at, updatedAt: at, checklist: [
+      { id: 'store', text: 'Walmart', order: 0, completedAt: at, createdAt: at, updatedAt: at },
+      { id: 'fish', text: 'Fish', parentId: 'store', order: 0, createdAt: at, updatedAt: at },
+      { id: 'salmon', text: 'Salmon', parentId: 'fish', order: 0, completedAt: at, createdAt: at, updatedAt: at },
+      { id: 'other', text: 'Costco', order: 1, createdAt: at, updatedAt: at },
+    ] }]
+    render(<Harness />)
+    const open = await screen.findByRole('button', { name: 'Open note: Groceries' })
+    const article = open.closest('article')!
+    const card = within(article)
+    expect(card.getAllByRole('checkbox').map((item) => item.getAttribute('aria-label'))).toEqual(['Check Costco', 'Check Walmart', 'Check Fish', 'Check Salmon'])
+    expect(article.querySelectorAll('.pn-checklist-checked-divider')).toHaveLength(1)
+    expect(article.querySelector('.pn-checklist-checked-divider')?.textContent).toContain('Checked items')
+    for (const name of ['Walmart', 'Fish', 'Salmon']) expect(card.getByRole('checkbox', { name: `Check ${name}` }).closest('label')!.classList.contains('is-checked-section')).toBe(true)
+    const fish = card.getByRole('checkbox', { name: 'Check Fish' }) as HTMLInputElement
+    expect(fish.checked).toBe(false)
+    expect(fish.closest('label')!.classList.contains('is-checked')).toBe(false)
+    expect(card.getByRole('checkbox', { name: 'Check Costco' }).closest('label')!.classList.contains('is-checked-section')).toBe(false)
+    expect(savedNotes()[0].checklist?.find((item) => item.id === 'fish')?.parentId).toBe('store')
   })
 
   it('keeps project notebooks separate, autosaves on switching, and adds sections from real projects', async () => {

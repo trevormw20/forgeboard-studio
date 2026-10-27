@@ -108,6 +108,26 @@ export function displayChecklist(items: NoteChecklistItem[]): { item: NoteCheckl
   return flattenChecklist(items, true)
 }
 
+/** Presentation-only regions in an already flattened checklist. A checked
+ * branch keeps its unchecked descendants with it without changing their state.
+ * Each sibling group gets one divider, unless a checked ancestor already
+ * supplies that region. Use all visible rows before trimming a card preview. */
+export function checklistCompletionSections(rows: { item: NoteChecklistItem; depth: number }[]): Map<string, { inCheckedSection: boolean; startsCheckedSection: boolean }> {
+  const sections = new Map<string, { inCheckedSection: boolean; startsCheckedSection: boolean }>()
+  const ancestors: { id: string; inCheckedSection: boolean }[] = []
+  const checkedGroups = new Set<string | undefined>()
+  for (const { item, depth } of rows) {
+    ancestors.length = depth
+    const parent = ancestors[depth - 1]
+    const checked = Boolean(item.completedAt), inherited = Boolean(parent?.inCheckedSection)
+    const section = { inCheckedSection: checked || inherited, startsCheckedSection: checked && !inherited && !checkedGroups.has(parent?.id) }
+    if (checked) checkedGroups.add(parent?.id)
+    sections.set(item.id, section)
+    ancestors.push({ id: item.id, inCheckedSection: section.inCheckedSection })
+  }
+  return sections
+}
+
 export function canMoveChecklistItem(items: NoteChecklistItem[], id: string, direction: ChecklistDirection): boolean {
   const { map, parents, children } = tree(items, true)
   const item = map.get(id)
