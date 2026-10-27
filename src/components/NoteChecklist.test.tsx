@@ -46,8 +46,71 @@ function addText(text: string) {
   fireEvent.change(input, { target: { value: text } })
 }
 function options(text: string) { fireEvent.click(screen.getByRole('button', { name: `Options for ${text}` })) }
+function rowNames() { return screen.getAllByRole('listitem').map((row) => row.getAttribute('aria-label')?.replace('Checklist item: ', '')) }
 
 describe('Note checklist', () => {
+  it('moves checked roots below open roots without rewriting canonical order or replacing the focused input', async () => {
+    await start([checklistItem('a', 'Apples', undefined, 0), checklistItem('b', 'Bread', undefined, 1), checklistItem('c', 'Coffee', undefined, 2)])
+    const originalOrder = saved().map(({ id, order, parentId }) => ({ id, order, parentId }))
+    const input = screen.getByRole('textbox', { name: 'Edit Apples' }) as HTMLInputElement
+    const checkbox = screen.getByRole('checkbox', { name: 'Apples' })
+    input.focus()
+    input.setSelectionRange(3, 3)
+    fireEvent.click(checkbox)
+    expect(rowNames()).toEqual(['Bread', 'Coffee', 'Apples'])
+    expect(screen.getByRole('textbox', { name: 'Edit Apples' })).toBe(input)
+    expect(screen.getByRole('checkbox', { name: 'Apples' })).toBe(checkbox)
+    expect(document.activeElement).toBe(input)
+    expect(input.selectionStart).toBe(3)
+    expect(saved().map(({ id, order, parentId }) => ({ id, order, parentId }))).toEqual(originalOrder)
+    fireEvent.click(checkbox)
+    expect(rowNames()).toEqual(['Apples', 'Bread', 'Coffee'])
+    expect(document.activeElement).toBe(input)
+    expect(saved().map(({ id, order, parentId }) => ({ id, order, parentId }))).toEqual(originalOrder)
+  })
+
+  it('moves completed parent subtrees together and sorts completed children only within their own parent', async () => {
+    await start([
+      checklistItem('walmart', 'Walmart', undefined, 0),
+      checklistItem('fish', 'Fish', 'walmart', 0),
+      checklistItem('salmon', 'Salmon', 'fish', 0),
+      checklistItem('milk', 'Milk', 'walmart', 1),
+      checklistItem('costco', 'Costco', undefined, 1),
+      checklistItem('turkey', 'Turkey', 'costco', 0),
+    ])
+    const originalOrder = saved().map(({ id, order, parentId }) => ({ id, order, parentId }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Walmart' }))
+    expect(rowNames()).toEqual(['Costco', 'Turkey', 'Walmart', 'Fish', 'Salmon', 'Milk'])
+    for (const name of ['Fish', 'Salmon', 'Milk', 'Costco', 'Turkey']) expect((screen.getByRole('checkbox', { name }) as HTMLInputElement).checked).toBe(false)
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Fish' }))
+    expect(rowNames()).toEqual(['Costco', 'Turkey', 'Walmart', 'Milk', 'Fish', 'Salmon'])
+    expect((screen.getByRole('checkbox', { name: 'Salmon' }) as HTMLInputElement).checked).toBe(false)
+    expect(screen.getByRole('listitem', { name: 'Checklist item: Fish' }).getAttribute('aria-level')).toBe('2')
+    expect(screen.getByRole('listitem', { name: 'Checklist item: Salmon' }).getAttribute('aria-level')).toBe('3')
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Walmart' }))
+    expect(rowNames()).toEqual(['Walmart', 'Milk', 'Fish', 'Salmon', 'Costco', 'Turkey'])
+    expect((screen.getByRole('checkbox', { name: 'Fish' }) as HTMLInputElement).checked).toBe(true)
+    expect(saved().map(({ id, order, parentId }) => ({ id, order, parentId }))).toEqual(originalOrder)
+  })
+
+  it('keeps one Add item after all displayed rows and inserts its new open root above checked roots', async () => {
+    await start([checklistItem('a', 'Already done', undefined, 0), checklistItem('b', 'Still open', undefined, 1)])
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Already done' }))
+    expect(rowNames()).toEqual(['Still open', 'Already done'])
+    const add = screen.getByRole('button', { name: 'Add item' })
+    fireEvent.click(add)
+    const input = screen.getByRole('textbox', { name: 'Edit New item' })
+    expect(document.activeElement).toBe(input)
+    fireEvent.change(input, { target: { value: 'New open item' } })
+    expect(rowNames()).toEqual(['Still open', 'New open item', 'Already done'])
+    expect(screen.getAllByRole('button', { name: 'Add item' })).toHaveLength(1)
+    const list = screen.getByRole('list', { name: 'Checklist items' })
+    expect(list.lastElementChild).toBe(screen.getByRole('listitem', { name: 'Checklist item: Already done' }))
+    expect(list.nextElementSibling).toBe(add)
+    expect(saved().filter((item) => ['a', 'b'].includes(item.id)).map(({ id, order }) => ({ id, order }))).toEqual([{ id: 'a', order: 0 }, { id: 'b', order: 1 }])
+    expect(saved().find((item) => item.text === 'New open item')?.parentId).toBeUndefined()
+  })
+
   it('autofocuses the first active item only once and leaves the current cursor alone on autosaves', async () => {
     const view = await start([checklistItem('first', 'Tuesday'), checklistItem('second', 'Wednesday', undefined, 1)], false, { autoFocus: true })
     expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'Edit Tuesday' }))

@@ -65,7 +65,7 @@ export function recoverChecklistSnapshot(items: NoteChecklistItem[]): NoteCheckl
   return validateNoteChecklist(items.map((item) => ({ ...item, parentId: safeParent(item, map, Boolean(item.deletedAt)) })))
 }
 
-function tree(items: NoteChecklistItem[]) {
+function tree(items: NoteChecklistItem[], completedLast = false) {
   const active = items.filter((item) => !item.deletedAt)
   const map = new Map(active.map((item) => [item.id, item]))
   const parents = new Map(active.map((item) => [item.id, safeParent(item, map)]))
@@ -76,12 +76,12 @@ function tree(items: NoteChecklistItem[]) {
     siblings.push(item)
     children.set(parent, siblings)
   }
-  for (const siblings of children.values()) siblings.sort(compare)
+  for (const siblings of children.values()) siblings.sort((left, right) => (completedLast ? Number(Boolean(left.completedAt)) - Number(Boolean(right.completedAt)) : 0) || compare(left, right))
   return { map, parents, children }
 }
 
-export function orderedChecklist(items: NoteChecklistItem[]): { item: NoteChecklistItem; depth: number }[] {
-  const { children } = tree(items)
+function flattenChecklist(items: NoteChecklistItem[], completedLast = false): { item: NoteChecklistItem; depth: number }[] {
+  const { children } = tree(items, completedLast)
   const output: { item: NoteChecklistItem; depth: number }[] = []
   const stack = [...(children.get(undefined) ?? [])].reverse().map((item) => ({ item, depth: 0 }))
   const seen = new Set<string>()
@@ -95,14 +95,28 @@ export function orderedChecklist(items: NoteChecklistItem[]): { item: NoteCheckl
   return output
 }
 
+/** Canonical saved order is independent of checking and remains useful for
+ * note titles, snapshots, and restoring an unchecked item's original place. */
+export function orderedChecklist(items: NoteChecklistItem[]): { item: NoteChecklistItem; depth: number }[] {
+  return flattenChecklist(items)
+}
+
+/** Keep each subtree together while moving checked siblings below open ones.
+ * This is derived only: checking never rewrites another item's saved order. */
+export function displayChecklist(items: NoteChecklistItem[]): { item: NoteChecklistItem; depth: number }[] {
+  return flattenChecklist(items, true)
+}
+
 export function canMoveChecklistItem(items: NoteChecklistItem[], id: string, direction: ChecklistDirection): boolean {
-  const { map, parents, children } = tree(items)
-  if (!map.has(id)) return false
+  const { map, parents, children } = tree(items, true)
+  const item = map.get(id)
+  if (!item) return false
   const siblings = children.get(parents.get(id)) ?? []
   const index = siblings.findIndex((item) => item.id === id)
   if (direction === 'outdent') return Boolean(parents.get(id))
-  if (direction === 'down') return index >= 0 && index < siblings.length - 1
-  return index > 0
+  if (direction === 'indent') return index > 0
+  const neighbor = siblings[index + (direction === 'up' ? -1 : 1)]
+  return Boolean(neighbor && Boolean(neighbor.completedAt) === Boolean(item.completedAt))
 }
 
 function getNote(workspace: Workspace, noteId: string): PersonalNote {
@@ -145,9 +159,11 @@ export function addChecklistItem(workspace: Workspace, noteId: string, input: Ch
   const parentId = input.parentId ?? (after ? parents.get(after.id) : undefined)
   if (after && parents.get(after.id) !== parentId) throw new Error('Place the new checklist item beside another item in the same group.')
   repairParents(note.checklist ?? [], parents, now)
-  const siblings = children.get(parentId) ?? []
+  // Every newly captured row is unchecked. Place it among open siblings, not
+  // against a checked boundary whose saved order may lie anywhere in the list.
+  const siblings = (children.get(parentId) ?? []).filter((sibling) => !sibling.completedAt)
   const item: NoteChecklistItem = { id, text, parentId, order: 0, createdAt: now, updatedAt: now }
-  place(item, siblings, after ? siblings.findIndex((sibling) => sibling.id === after.id) + 1 : siblings.length, now)
+  place(item, siblings, after && !after.completedAt ? siblings.findIndex((sibling) => sibling.id === after.id) + 1 : siblings.length, now)
   note.checklist ??= []
   note.checklist.push(item)
   note.updatedAt = now
@@ -172,7 +188,7 @@ export function toggleChecklistItem(workspace: Workspace, noteId: string, itemId
 export function moveChecklistItem(workspace: Workspace, noteId: string, itemId: string, direction: ChecklistDirection, now: string): void {
   const note = getNote(workspace, noteId), item = getItem(note, itemId), items = note.checklist!
   if (!canMoveChecklistItem(items, itemId, direction)) return
-  const { parents, children } = tree(items)
+  const { parents, children } = tree(items, true)
   // Concurrent parent moves can leave broken/cyclic links. Use the visible
   // hierarchy as the edit baseline, so an ordinary move can repair those rows.
   repairParents(items, parents, now)
@@ -180,17 +196,20 @@ export function moveChecklistItem(workspace: Workspace, noteId: string, itemId: 
   const index = siblings.findIndex((sibling) => sibling.id === itemId)
   if (direction === 'indent') {
     item.parentId = siblings[index - 1].id
-    const target = children.get(item.parentId) ?? []
+    const target = (children.get(item.parentId) ?? []).filter((sibling) => Boolean(sibling.completedAt) === Boolean(item.completedAt))
     place(item, target, target.length, now)
   } else if (direction === 'outdent') {
     const nextParent = parents.get(parentId!)
-    const target = children.get(nextParent) ?? []
+    const target = (children.get(nextParent) ?? []).filter((sibling) => Boolean(sibling.completedAt) === Boolean(item.completedAt))
     item.parentId = nextParent
-    place(item, target, target.findIndex((sibling) => sibling.id === parentId) + 1, now)
+    const parentIndex = target.findIndex((sibling) => sibling.id === parentId)
+    place(item, target, parentIndex >= 0 ? parentIndex + 1 : target.length, now)
   } else {
     item.parentId = parentId
-    const target = siblings.filter((sibling) => sibling.id !== itemId)
-    place(item, target, direction === 'up' ? index - 1 : index + 1, now)
+    const bucket = siblings.filter((sibling) => Boolean(sibling.completedAt) === Boolean(item.completedAt))
+    const bucketIndex = bucket.findIndex((sibling) => sibling.id === itemId)
+    const target = bucket.filter((sibling) => sibling.id !== itemId)
+    place(item, target, direction === 'up' ? bucketIndex - 1 : bucketIndex + 1, now)
   }
   note.updatedAt = now
 }

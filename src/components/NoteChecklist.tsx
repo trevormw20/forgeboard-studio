@@ -1,7 +1,7 @@
 import { useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react'
 import { ArrowDown, ArrowUp, ChevronDown, ChevronLeft, ChevronRight, CornerDownRight, GripVertical, ListChecks, MoreHorizontal, Plus, Trash2, Undo2, X } from 'lucide-react'
 import type { useForgeboard } from '../hooks/useForgeboard'
-import { canMoveChecklistItem, deletedChecklistRoots, orderedChecklist } from '../lib/noteChecklist'
+import { canMoveChecklistItem, deletedChecklistRoots, displayChecklist } from '../lib/noteChecklist'
 import type { PersonalNote } from '../types'
 import './note-checklist.css'
 
@@ -24,7 +24,7 @@ export function NoteChecklist({ forge, note, autoFocus = false, focusItemId }: {
   const [notice, setNotice] = useState('')
   const [lastDeleted, setLastDeleted] = useState<{ id: string; text: string }>()
   const items = note.checklist ?? []
-  const rows = useMemo(() => orderedChecklist(note.checklist ?? []), [note.checklist])
+  const rows = useMemo(() => displayChecklist(note.checklist ?? []), [note.checklist])
   const groups = useMemo(() => {
     const grouped: (typeof rows)[] = []
     for (const row of rows) {
@@ -156,7 +156,7 @@ export function NoteChecklist({ forge, note, autoFocus = false, focusItemId }: {
 
   return <section className="note-checklist" aria-label="Note checklist">
     <div className="nc-heading"><h3><ListChecks size={16} />Checklist</h3>{rows.length > 0 && <span>{completed} of {rows.length} done</span>}</div>
-    <p id={descriptionId} className="sr-only">Slide the dotted handle right to nest, left to unnest. Enter adds an item; Tab / Shift+Tab changes its level.</p>
+    <p id={descriptionId} className="sr-only">Checked items appear below unfinished items in their group. Slide the dotted handle right to nest, left to unnest. Enter adds an item; Tab / Shift+Tab changes its level.</p>
     {groups.length > 0 && <ul className="nc-list" aria-label="Checklist items">{groups.flatMap((group) => {
       const root = group[0].item
       const collapsed = collapsedIds.has(root.id)
@@ -170,7 +170,7 @@ export function NoteChecklist({ forge, note, autoFocus = false, focusItemId }: {
       return <li key={item.id} className={`nc-item ${depth === 0 ? 'nc-root' : ''} ${item.completedAt ? 'is-complete' : ''} ${dragging?.id === item.id ? 'is-sliding' : ''}`} aria-label={`Checklist item: ${name}`} aria-level={depth + 1} style={{ '--check-depth': depth, '--check-slide': dragging?.id === item.id ? `${dragging.x}px` : '0px' } as CSSProperties}>
         <div className="nc-row">
           <button type="button" className="nc-grip" aria-label={`Move ${name}`} aria-describedby={descriptionId} title="Slide right or left to change nesting. Arrow keys also move this item." onKeyDown={(event) => gripKey(event, item.id)} onPointerDown={(event) => startDrag(event, item.id)} onPointerMove={updateDrag} onPointerUp={finishDrag} onPointerCancel={(event) => finishDrag(event, true)} onLostPointerCapture={(event) => finishDrag(event, true)}><GripVertical size={18} /></button>
-          <label className="nc-check"><input type="checkbox" aria-label={name} checked={Boolean(item.completedAt)} onChange={() => attempt(() => forge.actions.toggleNoteChecklistItem(note.id, item.id))} /><span className="sr-only">{name}</span></label>
+          <label className="nc-check"><input type="checkbox" aria-label={name} checked={Boolean(item.completedAt)} onChange={() => attempt(() => { forge.actions.toggleNoteChecklistItem(note.id, item.id); setNotice(item.completedAt ? 'Returned to unfinished items in this group.' : 'Checked and moved below unfinished items in this group.') })} /><span className="sr-only">{name}</span></label>
           <input className="nc-text" ref={(element) => { if (element) inputs.current.set(item.id, element); else inputs.current.delete(item.id) }} aria-label={`Edit ${name}`} value={item.text} placeholder="List item" maxLength={10000} onChange={(event) => attempt(() => forge.actions.updateNoteChecklistItem(note.id, item.id, { text: event.target.value }))} onKeyDown={(event) => rowKey(event, item.id)} />
           {depth === 0 && <button type="button" className="nc-icon nc-toggle" aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${name} list`} aria-expanded={!collapsed} title={`${collapsed ? 'Expand' : 'Collapse'} list${childCount ? ` · ${childCount} sub-items` : ''}`} onClick={() => toggleGroup(item.id)}>{collapsed ? <ChevronRight size={17} /> : <ChevronDown size={17} />}{collapsed && childCount > 0 && <span className="nc-child-count" aria-hidden="true">{childCount}</span>}</button>}
           <button type="button" className={`nc-icon ${expanded ? 'is-open' : ''}`} aria-label={`Options for ${name}`} aria-expanded={expanded} onClick={() => setOptionsId(expanded ? undefined : item.id)}><MoreHorizontal size={18} /></button>

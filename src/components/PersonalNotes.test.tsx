@@ -284,6 +284,29 @@ describe('Personal notes', () => {
     expect(screen.queryByRole('region', { name: 'Note editor' })).toBeNull()
   })
 
+  it('sorts checked items to the bottom of note-card previews and keeps their labels and canonical order stable', async () => {
+    cached = seed()
+    const at = '2026-10-26T18:00:00Z'
+    cached.personalNotes = [{ id: 'preview-list', projectId: 'snail', title: '', body: '', createdAt: at, updatedAt: at, checklist: [
+      { id: 'first', text: 'First item', order: 0, createdAt: at, updatedAt: at },
+      { id: 'second', text: 'Second item', order: 1, createdAt: at, updatedAt: at },
+      { id: 'third', text: 'Third item', order: 2, createdAt: at, updatedAt: at },
+    ] }]
+    render(<Harness />)
+    const open = await screen.findByRole('button', { name: 'Open note: First item' })
+    const card = within(open.closest('article')!)
+    const checkbox = card.getByRole('checkbox', { name: 'Check First item' })
+    checkbox.focus()
+    fireEvent.click(checkbox)
+    expect(card.getAllByRole('checkbox').map((item) => item.getAttribute('aria-label'))).toEqual(['Check Second item', 'Check Third item', 'Check First item'])
+    expect(card.getByRole('checkbox', { name: 'Check First item' })).toBe(checkbox)
+    expect(document.activeElement).toBe(checkbox)
+    expect(screen.getByRole('button', { name: 'Open note: First item' })).toBe(open)
+    expect(savedNotes()[0].checklist?.map(({ id, order }) => ({ id, order }))).toEqual([{ id: 'first', order: 0 }, { id: 'second', order: 1 }, { id: 'third', order: 2 }])
+    fireEvent.click(checkbox)
+    expect(card.getAllByRole('checkbox').map((item) => item.getAttribute('aria-label'))).toEqual(['Check First item', 'Check Second item', 'Check Third item'])
+  })
+
   it('keeps project notebooks separate, autosaves on switching, and adds sections from real projects', async () => {
     cached = seed()
     const at = '2026-10-26T18:00:00Z'

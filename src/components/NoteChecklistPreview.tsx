@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import type { PersonalNote } from '../types'
 import type { useForgeboard } from '../hooks/useForgeboard'
-import { orderedChecklist } from '../lib/noteChecklist'
+import { displayChecklist } from '../lib/noteChecklist'
 
 export function NoteChecklistPreview({ note, forge }: { note: PersonalNote; forge: ReturnType<typeof useForgeboard> }) {
   const [error, setError] = useState('')
-  const rows = orderedChecklist(note.checklist ?? [])
+  const rows = displayChecklist(note.checklist ?? [])
   if (!rows.length) return null
   const completed = rows.filter(({ item }) => item.completedAt).length
   const toggle = (itemId: string) => {

@@ -30,6 +30,8 @@ If sync removes or moves an open note/checkbox, its open snapshot stays visible.
 
 Each checklist has exactly one **Add item** button at the bottom, after its final item or sub-item. It appends and focuses a new root checkbox. Enter creates a sibling; Tab/Shift+Tab or sliding the dotted handle changes nesting. Options also offers an explicit Sub-item action. Groups can collapse and reopen; checking a main item never checks its children or prevents further edits. Deleted groups have Undo and persistent Restore. Checklist edits merge by stable item and field, not by replacing the whole list.
 
+Checking an item moves it below unfinished siblings automatically, in both the editor and note-card preview. Parents move together with their nested checkboxes; checked sub-items stay at the bottom of their own parent group. Unchecking returns an item among unfinished siblings using its saved order. New unchecked items appear above checked ones, while the single Add item button remains at the very bottom. This display ordering does not rewrite saved positions or change other checkmarks.
+
 Deleting a note moves its existing sub-note group into Recently deleted; Undo or Restore returns it without removing other saved work. Conflicting edits retain both snapshots in **Saved conflict copies**, where either version can be recovered as a separate note. Personal Notes and labels are not included in AI summaries or automatic task routing. They are separate from Quick capture, which creates tasks.
 
 ## Incoming updates and unread notifications
