@@ -5,7 +5,7 @@ import { createPersonalNote, editPersonalNote } from './personalNotes'
 import { mergeWorkspaces } from './merge'
 import {
   addChecklistItem, canMoveChecklistItem, deletedChecklistRoots, displayChecklist, editChecklistItem, moveChecklistItem, orderedChecklist,
-  removeChecklistItem, restoreChecklistItem, toggleChecklistItem, validateNoteChecklist,
+  removeChecklistItem, repositionChecklistItem, restoreChecklistItem, toggleChecklistItem, validateNoteChecklist,
 } from './noteChecklist'
 
 const start = '2026-10-21T12:00:00.000Z', later = '2026-10-21T12:01:00.000Z', latest = '2026-10-21T12:02:00.000Z'
@@ -303,5 +303,139 @@ describe('note-internal checklists', () => {
     expect(items.find((item) => item.id === 'child')?.completedAt).toBeUndefined()
     expect(items.find((item) => item.id === 'grandchild')).toMatchObject({ parentId: 'child', completedAt: later })
     expect(items[0].completedAt).toBe(later)
+  })
+
+  it('repositions a row several places up or down and appends within its current group', () => {
+    const workspace = fixture(), items = checklist(workspace)
+    for (const id of ['d', 'e', 'f']) addChecklistItem(workspace, 'note', { text: id }, id, start)
+    repositionChecklistItem(workspace, 'note', 'f', { beforeId: 'b' }, later)
+    expect(visibleRows(items)).toEqual([['a', 0], ['f', 0], ['b', 0], ['c', 0], ['d', 0], ['e', 0]])
+    repositionChecklistItem(workspace, 'note', 'a', { beforeId: 'e' }, latest)
+    expect(visibleRows(items)).toEqual([['f', 0], ['b', 0], ['c', 0], ['d', 0], ['a', 0], ['e', 0]])
+    repositionChecklistItem(workspace, 'note', 'b', {}, latest)
+    expect(visibleRows(items)).toEqual([['f', 0], ['c', 0], ['d', 0], ['a', 0], ['e', 0], ['b', 0]])
+    expect(items.find((item) => item.id === 'b')).toMatchObject({ updatedAt: latest, text: 'Wed' })
+    expect(workspace.personalNotes![0].updatedAt).toBe(latest)
+  })
+
+  it('reparents an entire branch into another group and back to a precise root position', () => {
+    const workspace = fixture(), items = checklist(workspace)
+    addChecklistItem(workspace, 'note', { text: 'Child', parentId: 'b' }, 'child', start)
+    addChecklistItem(workspace, 'note', { text: 'Grandchild', parentId: 'child' }, 'grandchild', start)
+    addChecklistItem(workspace, 'note', { text: 'Existing child', parentId: 'a' }, 'existing', start)
+    toggleChecklistItem(workspace, 'note', 'grandchild', later)
+    const descendantsBefore = structuredClone(items.filter((item) => ['child', 'grandchild'].includes(item.id)))
+    repositionChecklistItem(workspace, 'note', 'b', { parentId: 'a', beforeId: 'existing' }, latest)
+    expect(visibleRows(items)).toEqual([['a', 0], ['b', 1], ['child', 2], ['grandchild', 3], ['existing', 1], ['c', 0]])
+    expect(items.filter((item) => ['child', 'grandchild'].includes(item.id))).toEqual(descendantsBefore)
+    repositionChecklistItem(workspace, 'note', 'b', { beforeId: 'a' }, latest)
+    expect(visibleRows(items)).toEqual([['b', 0], ['child', 1], ['grandchild', 2], ['a', 0], ['existing', 1], ['c', 0]])
+    expect(items.filter((item) => ['child', 'grandchild'].includes(item.id))).toEqual(descendantsBefore)
+    expect(items.find((item) => item.id === 'b')?.completedAt).toBeUndefined()
+  })
+
+  it('moves a nested branch between unrelated groups without touching any descendant', () => {
+    const workspace = fixture(), items = checklist(workspace)
+    for (const [id, parentId] of [['x', 'a'], ['y', 'a'], ['leaf', 'x'], ['z', 'c']]) {
+      addChecklistItem(workspace, 'note', { text: id, parentId }, id, start)
+    }
+    const before = structuredClone(items.find((item) => item.id === 'leaf'))
+    repositionChecklistItem(workspace, 'note', 'x', { parentId: 'c', beforeId: 'z' }, later)
+    expect(visibleRows(items)).toEqual([['a', 0], ['y', 1], ['b', 0], ['c', 0], ['x', 1], ['leaf', 2], ['z', 1]])
+    expect(items.find((item) => item.id === 'leaf')).toEqual(before)
+    repositionChecklistItem(workspace, 'note', 'x', { parentId: 'c' }, latest)
+    expect(visibleRows(items)).toEqual([['a', 0], ['y', 1], ['b', 0], ['c', 0], ['z', 1], ['x', 1], ['leaf', 2]])
+  })
+
+  it('keeps checked rows at the bottom while reordering their own completion bucket', () => {
+    const workspace = fixture(), items = checklist(workspace)
+    for (const id of ['d', 'e']) addChecklistItem(workspace, 'note', { text: id }, id, start)
+    toggleChecklistItem(workspace, 'note', 'b', later)
+    toggleChecklistItem(workspace, 'note', 'd', later)
+    repositionChecklistItem(workspace, 'note', 'e', { beforeId: 'a' }, latest)
+    expect(visibleRows(items)).toEqual([['e', 0], ['a', 0], ['c', 0], ['b', 0], ['d', 0]])
+    repositionChecklistItem(workspace, 'note', 'd', { beforeId: 'b' }, latest)
+    expect(visibleRows(items)).toEqual([['e', 0], ['a', 0], ['c', 0], ['d', 0], ['b', 0]])
+    repositionChecklistItem(workspace, 'note', 'a', {}, latest)
+    expect(visibleRows(items)).toEqual([['e', 0], ['c', 0], ['a', 0], ['d', 0], ['b', 0]])
+    repositionChecklistItem(workspace, 'note', 'd', {}, latest)
+    expect(visibleRows(items)).toEqual([['e', 0], ['c', 0], ['a', 0], ['b', 0], ['d', 0]])
+    expect(items.find((item) => item.id === 'b')?.completedAt).toBe(later)
+    expect(items.find((item) => item.id === 'd')?.completedAt).toBe(later)
+  })
+
+  it('allows completed roots to be nested below open children without changing checkmarks', () => {
+    const workspace = fixture(), items = checklist(workspace)
+    addChecklistItem(workspace, 'note', { text: 'Open child', parentId: 'a' }, 'open', start)
+    addChecklistItem(workspace, 'note', { text: 'Checked child', parentId: 'a' }, 'checked', start)
+    addChecklistItem(workspace, 'note', { text: 'Open descendant', parentId: 'b' }, 'leaf', start)
+    toggleChecklistItem(workspace, 'note', 'b', later)
+    toggleChecklistItem(workspace, 'note', 'checked', later)
+    repositionChecklistItem(workspace, 'note', 'b', { parentId: 'a', beforeId: 'checked' }, latest)
+    expect(visibleRows(items)).toEqual([['a', 0], ['open', 1], ['b', 1], ['leaf', 2], ['checked', 1], ['c', 0]])
+    expect(items.find((item) => item.id === 'b')?.completedAt).toBe(later)
+    expect(items.find((item) => item.id === 'leaf')?.completedAt).toBeUndefined()
+    repositionChecklistItem(workspace, 'note', 'b', {}, latest)
+    expect(visibleRows(items)).toEqual([['a', 0], ['open', 1], ['checked', 1], ['c', 0], ['b', 0], ['leaf', 1]])
+  })
+
+  it('leaves the entire workspace unchanged on invalid drop identities or relationships', () => {
+    const workspace = fixture(), items = checklist(workspace)
+    addChecklistItem(workspace, 'note', { text: 'Child', parentId: 'a' }, 'child', start)
+    addChecklistItem(workspace, 'note', { text: 'Grandchild', parentId: 'child' }, 'grandchild', start)
+    createPersonalNote(workspace, { title: 'Other', body: '' }, 'other', start)
+    addChecklistItem(workspace, 'other', { text: 'Foreign item' }, 'foreign', start)
+    addChecklistItem(workspace, 'note', { text: 'Trash' }, 'trash', start)
+    removeChecklistItem(workspace, 'note', 'trash', later)
+    toggleChecklistItem(workspace, 'note', 'c', later)
+    // An invalid drop must not opportunistically repair unrelated bad links.
+    items.find((item) => item.id === 'b')!.parentId = 'missing'
+    const before = structuredClone(workspace)
+    const invalid = [
+      { parentId: 'a' }, { parentId: 'child' }, { parentId: 'grandchild' },
+      { parentId: 'foreign' }, { parentId: 'trash' }, { parentId: 'missing' },
+      { beforeId: 'foreign' }, { beforeId: 'trash' }, { beforeId: 'missing' },
+      { beforeId: 'child' }, { parentId: 'b', beforeId: 'child' }, { beforeId: 'c' },
+    ]
+    for (const position of invalid) {
+      expect(() => repositionChecklistItem(workspace, 'note', 'a', position, latest)).toThrow()
+      expect(workspace).toEqual(before)
+    }
+    for (const itemId of ['foreign', 'trash', 'missing']) {
+      expect(() => repositionChecklistItem(workspace, 'note', itemId, {}, latest)).toThrow(/unavailable/)
+      expect(workspace).toEqual(before)
+    }
+    expect(() => repositionChecklistItem(workspace, 'other', 'a', {}, latest)).toThrow(/unavailable/)
+    expect(() => repositionChecklistItem(workspace, 'missing-note', 'a', {}, latest)).toThrow(/unavailable/)
+    expect(workspace).toEqual(before)
+  })
+
+  it('does not stamp or rewrite an item dropped at its current visible position', () => {
+    const workspace = fixture(), items = checklist(workspace)
+    toggleChecklistItem(workspace, 'note', 'b', later)
+    const before = structuredClone(workspace)
+    repositionChecklistItem(workspace, 'note', 'a', { beforeId: 'c' }, latest)
+    repositionChecklistItem(workspace, 'note', 'c', {}, latest)
+    repositionChecklistItem(workspace, 'note', 'b', {}, latest)
+    repositionChecklistItem(workspace, 'note', 'a', { beforeId: 'a' }, latest)
+    expect(workspace).toEqual(before)
+    expect(visibleRows(items)).toEqual([['a', 0], ['c', 0], ['b', 0]])
+  })
+
+  it('repairs visible orphan roots and rebalances exhausted order spacing only after valid drops', () => {
+    const workspace = fixture(), items = checklist(workspace)
+    items[0].order = 1
+    items[1].order = 1 + Number.EPSILON
+    items[2].order = 2
+    addChecklistItem(workspace, 'note', { text: 'Descendant', parentId: 'c' }, 'child', start)
+    const childBefore = structuredClone(items.find((item) => item.id === 'child'))
+    repositionChecklistItem(workspace, 'note', 'c', { beforeId: 'b' }, later)
+    expect(visibleRows(items)).toEqual([['a', 0], ['c', 0], ['child', 1], ['b', 0]])
+    expect(items.filter((item) => !item.parentId).map((item) => item.order).sort((a, b) => a - b)).toEqual([0, 1, 2])
+    expect(items.find((item) => item.id === 'child')).toEqual(childBefore)
+    items[1].parentId = 'missing'
+    repositionChecklistItem(workspace, 'note', 'b', { parentId: 'a' }, latest)
+    expect(visibleRows(items)).toEqual([['a', 0], ['b', 1], ['c', 0], ['child', 1]])
+    expect(items[1].parentId).toBe('a')
   })
 })

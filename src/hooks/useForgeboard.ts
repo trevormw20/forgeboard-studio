@@ -22,8 +22,8 @@ import { DEFAULT_ESCALATION } from '../lib/priority'
 import { routeNote } from '../lib/routing'
 import { createPersonalNote, editPersonalNote, removePersonalNote, restorePersonalNoteTree, upsertNoteLabel, removeNoteLabel } from '../lib/personalNotes'
 import type { PersonalNoteInput, PersonalNoteUpdate, NoteLabelInput } from '../lib/personalNotes'
-import { addChecklistItem, editChecklistItem, toggleChecklistItem, moveChecklistItem, removeChecklistItem, restoreChecklistItem } from '../lib/noteChecklist'
-import type { ChecklistDirection, ChecklistItemInput } from '../lib/noteChecklist'
+import { addChecklistItem, editChecklistItem, toggleChecklistItem, moveChecklistItem, repositionChecklistItem, removeChecklistItem, restoreChecklistItem } from '../lib/noteChecklist'
+import type { ChecklistDirection, ChecklistDropPosition, ChecklistItemInput } from '../lib/noteChecklist'
 import { hasNoteHistoryChanges, NOTE_HISTORY_LIMIT, NOTE_TYPING_GROUP_MS, replayNoteHistory, snapshotNote } from '../lib/noteHistory'
 import { createProject, createSeedWorkspace, createTask } from '../seed'
 import type {
@@ -682,6 +682,10 @@ export function useForgeboard() {
     commit('personal-note.checklist.move', noteId, (draft, now) => { moveChecklistItem(draft, noteId, itemId, direction, now) })
   }, [commit])
 
+  const repositionNoteChecklistItem = useCallback((noteId: string, itemId: string, position: ChecklistDropPosition): void => {
+    commit('personal-note.checklist.reposition', noteId, (draft, now) => { repositionChecklistItem(draft, noteId, itemId, position, now) })
+  }, [commit])
+
   const deleteNoteChecklistItem = useCallback((noteId: string, itemId: string): void => {
     commit('personal-note.checklist.delete', noteId, (draft, now) => { removeChecklistItem(draft, noteId, itemId, now) })
   }, [commit])
@@ -740,6 +744,7 @@ export function useForgeboard() {
       updateNoteChecklistItem,
       toggleNoteChecklistItem,
       moveNoteChecklistItem,
+      repositionNoteChecklistItem,
       deleteNoteChecklistItem,
       restoreNoteChecklistItem,
     },

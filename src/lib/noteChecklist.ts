@@ -2,6 +2,7 @@ import type { NoteChecklistItem, PersonalNote, Workspace } from '../types'
 
 export type ChecklistDirection = 'indent' | 'outdent' | 'up' | 'down'
 export interface ChecklistItemInput { text: string; parentId?: string; afterId?: string }
+export interface ChecklistDropPosition { parentId?: string; beforeId?: string }
 
 const MAX_ITEMS = 5_000
 const MAX_TEXT = 10_000
@@ -182,6 +183,34 @@ export function toggleChecklistItem(workspace: Workspace, noteId: string, itemId
   const note = getNote(workspace, noteId), item = getItem(note, itemId)
   item.completedAt = item.completedAt ? undefined : now
   item.updatedAt = now
+  note.updatedAt = now
+}
+
+/** Move a whole branch to a precise visible position without changing its
+ * checkmarks or the descendants' identities, nesting, or saved order. */
+export function repositionChecklistItem(workspace: Workspace, noteId: string, itemId: string, position: ChecklistDropPosition, now: string): void {
+  const note = getNote(workspace, noteId), item = getItem(note, itemId), items = note.checklist!
+  const { parents, children } = tree(items, true)
+  const { parentId, beforeId } = position
+  if (parentId !== undefined) {
+    getItem(note, parentId)
+    if (descendants(items, itemId).has(parentId)) throw new Error('A checklist item cannot be nested inside itself or its descendants.')
+  }
+  const before = beforeId !== undefined ? getItem(note, beforeId) : undefined
+  if (before && (parents.get(before.id) !== parentId || Boolean(before.completedAt) !== Boolean(item.completedAt))) {
+    throw new Error('Place the checklist item beside another item in the same group and completion state.')
+  }
+  // Resolve and validate every destination before repairing or mutating any
+  // row: invalid drops must leave the original note completely unchanged.
+  if (before?.id === itemId) return
+  const bucket = (children.get(parentId) ?? []).filter((sibling) => Boolean(sibling.completedAt) === Boolean(item.completedAt))
+  const target = bucket.filter((sibling) => sibling.id !== itemId)
+  const index = before ? target.findIndex((sibling) => sibling.id === before.id) : target.length
+  const currentIndex = bucket.findIndex((sibling) => sibling.id === itemId)
+  if (item.parentId === parentId && currentIndex === index) return
+  repairParents(items, parents, now)
+  item.parentId = parentId
+  place(item, target, index, now)
   note.updatedAt = now
 }
 

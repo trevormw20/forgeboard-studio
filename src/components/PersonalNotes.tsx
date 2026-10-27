@@ -330,6 +330,7 @@ export function PersonalNotes({ forge, onAddProject, initialProjectId, onProject
     addNoteChecklistItem: (_noteId, input) => forge.actions.addNoteChecklistItem(activateEditor(), input),
     toggleNoteChecklistItem: (_noteId, itemId) => forge.actions.toggleNoteChecklistItem(activateEditor(), itemId),
     moveNoteChecklistItem: (_noteId, itemId, direction) => forge.actions.moveNoteChecklistItem(activateEditor(), itemId, direction),
+    repositionNoteChecklistItem: (_noteId, itemId, position) => forge.actions.repositionNoteChecklistItem(activateEditor(), itemId, position),
     deleteNoteChecklistItem: (_noteId, itemId) => deleteCheckbox(itemId),
     restoreNoteChecklistItem: (_noteId, itemId) => forge.actions.restoreNoteChecklistItem(activateEditor(), itemId),
   } }

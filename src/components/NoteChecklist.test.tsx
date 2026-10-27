@@ -14,8 +14,20 @@ vi.mock('../lib/db', () => ({
   saveWorkspaceChanges: async () => {},
 }))
 
-beforeEach(() => { vi.stubGlobal('PointerEvent', MouseEvent) })
-afterEach(() => { cleanup(); cached = undefined; vi.unstubAllGlobals() })
+class TestPointerEvent extends MouseEvent {
+  readonly pointerId: number
+  readonly pointerType: string
+  readonly isPrimary: boolean
+  constructor(type: string, init: PointerEventInit = {}) {
+    super(type, init)
+    this.pointerId = init.pointerId ?? 1
+    this.pointerType = init.pointerType ?? 'mouse'
+    this.isPrimary = init.isPrimary ?? true
+  }
+}
+
+beforeEach(() => { vi.stubGlobal('PointerEvent', TestPointerEvent) })
+afterEach(() => { cleanup(); cached = undefined; vi.unstubAllGlobals(); vi.restoreAllMocks() })
 
 type FocusProps = { autoFocus?: boolean; focusItemId?: string }
 
@@ -47,6 +59,29 @@ function addText(text: string) {
 }
 function options(text: string) { fireEvent.click(screen.getByRole('button', { name: `Options for ${text}` })) }
 function rowNames() { return screen.getAllByRole('listitem').map((row) => row.getAttribute('aria-label')?.replace('Checklist item: ', '')) }
+
+function mockChecklistRects() {
+  const original = HTMLElement.prototype.getBoundingClientRect
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+    const row = this.closest('.nc-item')
+    if (row) {
+      const index = [...document.querySelectorAll('.nc-item')].indexOf(row)
+      const depth = Number(row.getAttribute('aria-level') ?? '1') - 1
+      return new DOMRect(20 + depth * 30, 100 + index * 40, 600 - depth * 30, 40)
+    }
+    if (this.matches('.nc-list')) return new DOMRect(20, 100, 600, document.querySelectorAll('.nc-item').length * 40)
+    return original.call(this)
+  })
+}
+
+function pointerDrag(name: string, from: { x: number; y: number }, to: { x: number; y: number }, end: 'up' | 'cancel' | 'lost' = 'up', pointerType = 'mouse') {
+  const grip = screen.getByRole('button', { name: `Move ${name}` })
+  fireEvent.pointerDown(grip, { clientX: from.x, clientY: from.y, pointerId: 1, pointerType, button: 0 })
+  fireEvent.pointerMove(grip, { clientX: to.x, clientY: to.y, pointerId: 1, pointerType })
+  if (end === 'cancel') fireEvent.pointerCancel(grip, { clientX: to.x, clientY: to.y, pointerId: 1, pointerType })
+  else if (end === 'lost') fireEvent.lostPointerCapture(grip, { pointerId: 1, pointerType })
+  else fireEvent.pointerUp(grip, { clientX: to.x, clientY: to.y, pointerId: 1, pointerType })
+}
 
 describe('Note checklist', () => {
   it('moves checked roots below open roots without rewriting canonical order or replacing the focused input', async () => {
@@ -246,23 +281,111 @@ describe('Note checklist', () => {
     expect(list).toEqual(['Checklist item: Tuesday', 'Checklist item: Orange chicken', 'Checklist item: Wed'])
   })
 
-  it('slides a handle right to indent and left to outdent while ignoring vertical drags', async () => {
-    await start()
-    addText('Tuesday')
-    addText('Wed')
-    const grip = screen.getByRole('button', { name: 'Move Wed' })
-    fireEvent.pointerDown(grip, { clientX: 70, clientY: 50, pointerId: 1, button: 0 })
-    fireEvent.pointerMove(grip, { clientX: 115, clientY: 52, pointerId: 1 })
-    fireEvent.pointerUp(grip, { clientX: 115, clientY: 52, pointerId: 1 })
-    expect(saved()[1].parentId).toBe(saved()[0].id)
-    fireEvent.pointerDown(grip, { clientX: 110, clientY: 50, pointerId: 2, button: 0 })
-    fireEvent.pointerMove(grip, { clientX: 60, clientY: 51, pointerId: 2 })
-    fireEvent.pointerUp(grip, { clientX: 60, clientY: 51, pointerId: 2 })
-    expect(saved()[1].parentId).toBeUndefined()
-    fireEvent.pointerDown(grip, { clientX: 70, clientY: 50, pointerId: 3, button: 0 })
-    fireEvent.pointerMove(grip, { clientX: 110, clientY: 120, pointerId: 3 })
-    fireEvent.pointerUp(grip, { clientX: 110, clientY: 120, pointerId: 3 })
-    expect(saved()[1].parentId).toBeUndefined()
+  it('slides a handle horizontally to indent and outdent without needing a separate menu', async () => {
+    await start([checklistItem('tue', 'Tuesday'), checklistItem('wed', 'Wed', undefined, 1)])
+    mockChecklistRects()
+    pointerDrag('Wed', { x: 70, y: 160 }, { x: 115, y: 162 })
+    expect(saved().find((item) => item.id === 'wed')?.parentId).toBe('tue')
+    pointerDrag('Wed', { x: 110, y: 160 }, { x: 60, y: 161 })
+    expect(saved().find((item) => item.id === 'wed')?.parentId).toBeUndefined()
+  })
+
+  it('drags a six-dot handle to any vertical position and only saves when it is dropped', async () => {
+    await start([checklistItem('a', 'Apples'), checklistItem('b', 'Bread', undefined, 1), checklistItem('c', 'Coffee', undefined, 2)])
+    mockChecklistRects()
+    const grip = screen.getByRole('button', { name: 'Move Coffee' })
+    const input = screen.getByRole('textbox', { name: 'Edit Coffee' })
+    const before = saved()
+    fireEvent.pointerDown(grip, { clientX: 70, clientY: 200, pointerId: 1, button: 0 })
+    fireEvent.pointerMove(grip, { clientX: 70, clientY: 101, pointerId: 1 })
+    expect(saved()).toEqual(before)
+    fireEvent.pointerUp(grip, { clientX: 70, clientY: 101, pointerId: 1 })
+    expect(rowNames()).toEqual(['Coffee', 'Apples', 'Bread'])
+    expect(screen.getByRole('textbox', { name: 'Edit Coffee' })).toBe(input)
+    expect(saved().every((item) => !item.parentId)).toBe(true)
+    pointerDrag('Coffee', { x: 70, y: 120 }, { x: 70, y: 230 }, 'up', 'touch')
+    expect(rowNames()).toEqual(['Apples', 'Bread', 'Coffee'])
+    expect(saved().every((item) => !item.parentId)).toBe(true)
+  })
+
+  it('keeps a dragged parent and all its descendants together during vertical ordering', async () => {
+    await start([
+      checklistItem('a', 'Walmart'), checklistItem('fish', 'Fish', 'a'), checklistItem('salmon', 'Salmon', 'fish'),
+      checklistItem('b', 'Costco', undefined, 1), checklistItem('c', 'Market', undefined, 2),
+    ])
+    mockChecklistRects()
+    pointerDrag('Walmart', { x: 70, y: 120 }, { x: 70, y: 315 })
+    expect(rowNames()).toEqual(['Costco', 'Market', 'Walmart', 'Fish', 'Salmon'])
+    expect(saved().find((item) => item.id === 'a')?.parentId).toBeUndefined()
+    expect(saved().find((item) => item.id === 'fish')?.parentId).toBe('a')
+    expect(saved().find((item) => item.id === 'salmon')?.parentId).toBe('fish')
+    expect(screen.getAllByRole('button', { name: 'Add item' })).toHaveLength(1)
+  })
+
+  it('combines vertical placement and horizontal nesting or outdenting in a single drag', async () => {
+    await start([
+      checklistItem('a', 'Apples'), checklistItem('b', 'Bread', undefined, 1),
+      checklistItem('c', 'Coffee', undefined, 2), checklistItem('milk', 'Milk', 'c'),
+    ])
+    mockChecklistRects()
+    pointerDrag('Coffee', { x: 70, y: 200 }, { x: 105, y: 140 })
+    expect(rowNames()).toEqual(['Apples', 'Coffee', 'Milk', 'Bread'])
+    expect(saved().find((item) => item.id === 'c')?.parentId).toBe('a')
+    expect(saved().find((item) => item.id === 'milk')?.parentId).toBe('c')
+    expect(screen.getByRole('listitem', { name: 'Checklist item: Milk' }).getAttribute('aria-level')).toBe('3')
+    pointerDrag('Coffee', { x: 100, y: 160 }, { x: 65, y: 260 })
+    expect(rowNames()).toEqual(['Apples', 'Bread', 'Coffee', 'Milk'])
+    expect(saved().find((item) => item.id === 'c')?.parentId).toBeUndefined()
+    expect(screen.getByRole('listitem', { name: 'Checklist item: Milk' }).getAttribute('aria-level')).toBe('2')
+  })
+
+  it('does not commit a cancelled drag, lost capture, Escape, or ordinary click jitter', async () => {
+    await start([checklistItem('a', 'Apples'), checklistItem('b', 'Bread', undefined, 1), checklistItem('c', 'Coffee', undefined, 2)])
+    mockChecklistRects()
+    const before = saved()
+    pointerDrag('Coffee', { x: 70, y: 200 }, { x: 105, y: 140 }, 'cancel')
+    expect(saved()).toEqual(before)
+    pointerDrag('Coffee', { x: 70, y: 200 }, { x: 70, y: 101 }, 'lost')
+    expect(saved()).toEqual(before)
+    pointerDrag('Coffee', { x: 70, y: 200 }, { x: 73, y: 202 })
+    expect(saved()).toEqual(before)
+    const grip = screen.getByRole('button', { name: 'Move Coffee' })
+    fireEvent.pointerDown(grip, { clientX: 70, clientY: 200, pointerId: 1, button: 0 })
+    fireEvent.pointerMove(grip, { clientX: 70, clientY: 101, pointerId: 1 })
+    fireEvent.keyDown(grip, { key: 'Escape' })
+    fireEvent.pointerUp(grip, { clientX: 70, clientY: 101, pointerId: 1 })
+    expect(saved()).toEqual(before)
+    expect(rowNames()).toEqual(['Apples', 'Bread', 'Coffee'])
+  })
+
+  it('keeps checked siblings below unfinished ones even when a drop crosses that boundary', async () => {
+    await start([
+      checklistItem('a', 'Apples'), { ...checklistItem('b', 'Bread', undefined, 1), completedAt: '2026-10-27T12:00:00Z' },
+      checklistItem('c', 'Coffee', undefined, 2), { ...checklistItem('d', 'Dates', undefined, 3), completedAt: '2026-10-27T12:00:00Z' },
+    ])
+    mockChecklistRects()
+    expect(rowNames()).toEqual(['Apples', 'Coffee', 'Bread', 'Dates'])
+    pointerDrag('Apples', { x: 70, y: 120 }, { x: 70, y: 270 })
+    expect(rowNames()).toEqual(['Coffee', 'Apples', 'Bread', 'Dates'])
+    pointerDrag('Dates', { x: 70, y: 240 }, { x: 70, y: 101 })
+    expect(rowNames()).toEqual(['Coffee', 'Apples', 'Dates', 'Bread'])
+    expect((screen.getByRole('checkbox', { name: 'Dates' }) as HTMLInputElement).checked).toBe(true)
+    expect((screen.getByRole('checkbox', { name: 'Apples' }) as HTMLInputElement).checked).toBe(false)
+  })
+
+  it('uses only visible hit targets but preserves and reveals a collapsed destination’s existing children', async () => {
+    await start([
+      checklistItem('a', 'Walmart'), checklistItem('fish', 'Fish', 'a'), checklistItem('b', 'Costco', undefined, 1),
+      checklistItem('turkey', 'Turkey', 'b'), checklistItem('c', 'Market', undefined, 2),
+    ])
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse Walmart list' }))
+    expect(screen.queryByRole('textbox', { name: 'Edit Fish' })).toBeNull()
+    mockChecklistRects()
+    pointerDrag('Market', { x: 70, y: 240 }, { x: 105, y: 140 })
+    expect(saved().find((item) => item.id === 'c')?.parentId).toBe('a')
+    expect(saved().find((item) => item.id === 'fish')?.parentId).toBe('a')
+    expect(rowNames()).toEqual(['Walmart', 'Fish', 'Market', 'Costco', 'Turkey'])
+    expect(screen.getByRole('button', { name: 'Collapse Walmart list' }).getAttribute('aria-expanded')).toBe('true')
   })
 
   it('provides explicit indent/outdent buttons and skips invalid nesting', async () => {

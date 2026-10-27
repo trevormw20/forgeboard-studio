@@ -1,13 +1,15 @@
-import { useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react'
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react'
 import { ArrowDown, ArrowUp, ChevronDown, ChevronLeft, ChevronRight, CornerDownRight, GripVertical, ListChecks, MoreHorizontal, Plus, Trash2, Undo2, X } from 'lucide-react'
 import type { useForgeboard } from '../hooks/useForgeboard'
 import { canMoveChecklistItem, deletedChecklistRoots, displayChecklist } from '../lib/noteChecklist'
+import { checklistDragBranch, projectChecklistDrop, type ChecklistDrop } from '../lib/checklistDrag'
 import type { PersonalNote } from '../types'
 import './note-checklist.css'
 
 type Forge = ReturnType<typeof useForgeboard>
 type Direction = 'indent' | 'outdent' | 'up' | 'down'
-type Drag = { id: string; pointerId: number; startX: number; startY: number; x: number; y: number }
+type Drag = { id: string; noteId: string; pointerId: number; startX: number; startY: number; clientX: number; clientY: number; active: boolean; reordering: boolean; grip: HTMLButtonElement; scrollParent: Element }
+type DragPreview = { id: string; x: number; reordering: boolean; projection?: ChecklistDrop; label: string }
 
 export function NoteChecklist({ forge, note, autoFocus = false, focusItemId }: { forge: Forge; note: PersonalNote; autoFocus?: boolean; focusItemId?: string }) {
   const descriptionId = useId()
@@ -17,7 +19,9 @@ export function NoteChecklist({ forge, note, autoFocus = false, focusItemId }: {
   const lastFocusRequest = useRef<string | undefined>(undefined)
   const requestedFocus = useRef<string | undefined>(undefined)
   const drag = useRef<Drag | undefined>(undefined)
-  const [dragging, setDragging] = useState<{ id: string; x: number }>()
+  const rowElements = useRef(new Map<string, HTMLLIElement>())
+  const scrollFrame = useRef<number | undefined>(undefined)
+  const [dragging, setDragging] = useState<DragPreview>()
   const [optionsId, setOptionsId] = useState<string>()
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(() => new Set())
   const [error, setError] = useState('')
@@ -25,6 +29,9 @@ export function NoteChecklist({ forge, note, autoFocus = false, focusItemId }: {
   const [lastDeleted, setLastDeleted] = useState<{ id: string; text: string }>()
   const items = note.checklist ?? []
   const rows = useMemo(() => displayChecklist(note.checklist ?? []), [note.checklist])
+  const liveRows = useRef(rows)
+  liveRows.current = rows
+  const draggedIds = useMemo(() => dragging ? checklistDragBranch(rows, dragging.id) : new Set<string>(), [rows, dragging])
   const groups = useMemo(() => {
     const grouped: (typeof rows)[] = []
     for (const row of rows) {
@@ -37,6 +44,27 @@ export function NoteChecklist({ forge, note, autoFocus = false, focusItemId }: {
   const deleted = items.filter((item) => item.deletedAt)
   const deletedRoots = deletedChecklistRoots(items)
   const nameOf = (text: string) => text.trim() || 'New item'
+
+  useEffect(() => {
+    function escape(event: globalThis.KeyboardEvent) {
+      if (event.key !== 'Escape' || !drag.current) return
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      clearDrag()
+      setNotice('Checklist move cancelled.')
+    }
+    window.addEventListener('keydown', escape, true)
+    return () => {
+      window.removeEventListener('keydown', escape, true)
+      const current = drag.current
+      drag.current = undefined
+      if (scrollFrame.current !== undefined) cancelAnimationFrame(scrollFrame.current)
+      scrollFrame.current = undefined
+      if (current?.grip.hasPointerCapture?.(current.pointerId)) current.grip.releasePointerCapture?.(current.pointerId)
+    }
+  }, [])
+
+  useEffect(() => { clearDrag() }, [note.id])
 
   // Consume each explicit request once. A requested row can arrive in the next
   // workspace snapshot, but ordinary autosaves must never move the cursor back.
@@ -120,30 +148,92 @@ export function NoteChecklist({ forge, note, autoFocus = false, focusItemId }: {
   }
 
   function startDrag(event: PointerEvent<HTMLButtonElement>, id: string) {
-    if (event.button !== 0 && event.pointerType !== 'touch') return
-    drag.current = { id, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, x: 0, y: 0 }
+    if (drag.current || event.isPrimary === false || (event.button !== 0 && event.pointerType !== 'touch')) return
+    event.preventDefault()
+    let scrollParent: Element = document.scrollingElement ?? document.documentElement
+    for (let ancestor = event.currentTarget.parentElement; ancestor; ancestor = ancestor.parentElement) {
+      if (/(auto|scroll)/.test(getComputedStyle(ancestor).overflowY) && ancestor.scrollHeight > ancestor.clientHeight) { scrollParent = ancestor; break }
+    }
+    drag.current = { id, noteId: note.id, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, clientX: event.clientX, clientY: event.clientY, active: false, reordering: false, grip: event.currentTarget, scrollParent }
     event.currentTarget.setPointerCapture?.(event.pointerId)
+  }
+
+  function clearDrag() {
+    const current = drag.current
+    drag.current = undefined
+    if (scrollFrame.current !== undefined) cancelAnimationFrame(scrollFrame.current)
+    scrollFrame.current = undefined
+    setDragging(undefined)
+    if (current?.grip.hasPointerCapture?.(current.pointerId)) current.grip.releasePointerCapture?.(current.pointerId)
+  }
+
+  function previewDrag(current: Drag): DragPreview | undefined {
+    const x = current.clientX - current.startX, y = current.clientY - current.startY
+    if (!current.active && Math.hypot(x, y) < 6) return undefined
+    current.active = true
+    current.reordering ||= Math.abs(y) >= 12
+    const projection = current.reordering ? projectChecklistDrop(liveRows.current, [...rowElements.current].map(([id, element]) => {
+      const row = element.querySelector('.nc-row')!
+      const bounds = row.getBoundingClientRect()
+      const rect = bounds.height > 0 ? bounds : element.getBoundingClientRect()
+      return { id, top: rect.top, bottom: rect.bottom }
+    }), current.id, current.clientY, x) : undefined
+    return { id: current.id, x: current.reordering ? 0 : Math.max(-40, Math.min(40, x)), reordering: current.reordering, projection, label: current.reordering ? projection?.label ?? 'Move up or down to choose a position.' : x >= 0 ? 'Slide right to make a sub-item.' : 'Slide left to move out one level.' }
+  }
+
+  function showDrag(preview: DragPreview | undefined) {
+    setDragging((previous) => previous?.id === preview?.id && previous?.x === preview?.x && previous?.reordering === preview?.reordering && JSON.stringify(previous?.projection) === JSON.stringify(preview?.projection) && previous?.label === preview?.label ? previous : preview)
+  }
+
+  function autoScroll() {
+    scrollFrame.current = undefined
+    const current = drag.current
+    if (!current?.active) return
+    const page = current.scrollParent === document.scrollingElement || current.scrollParent === document.documentElement
+    const rect = current.scrollParent.getBoundingClientRect()
+    const top = page ? 0 : Math.max(0, rect.top), bottom = page ? window.innerHeight : Math.min(window.innerHeight, rect.bottom)
+    const edge = Math.min(50, (bottom - top) / 4)
+    const amount = current.clientY < top + edge ? -Math.min(16, (top + edge - current.clientY) / 3) : current.clientY > bottom - edge ? Math.min(16, (current.clientY - bottom + edge) / 3) : 0
+    if (amount && current.reordering) {
+      const before = current.scrollParent.scrollTop
+      current.scrollParent.scrollTop += amount
+      if (current.scrollParent.scrollTop !== before) showDrag(previewDrag(current))
+    }
+    scrollFrame.current = requestAnimationFrame(autoScroll)
   }
 
   function updateDrag(event: PointerEvent<HTMLButtonElement>) {
     const current = drag.current
     if (!current || current.pointerId !== event.pointerId) return
-    current.x = event.clientX - current.startX
-    current.y = event.clientY - current.startY
-    if (Math.abs(current.x) > 6 && Math.abs(current.x) > Math.abs(current.y)) {
-      setDragging({ id: current.id, x: Math.max(-40, Math.min(40, current.x)) })
-    }
+    current.clientX = event.clientX
+    current.clientY = event.clientY
+    showDrag(previewDrag(current))
+    if (current.active && scrollFrame.current === undefined) scrollFrame.current = requestAnimationFrame(autoScroll)
   }
 
   function finishDrag(event: PointerEvent<HTMLButtonElement>, cancelled = false) {
     const current = drag.current
     if (!current || current.pointerId !== event.pointerId) return
-    drag.current = undefined
-    setDragging(undefined)
-    if (cancelled) return
-    const x = event.clientX - current.startX
-    const y = event.clientY - current.startY
-    if (Math.abs(x) >= 30 && Math.abs(x) > Math.abs(y) * 1.2) move(current.id, x > 0 ? 'indent' : 'outdent')
+    if (cancelled || current.noteId !== note.id) { clearDrag(); return }
+    current.clientX = event.clientX
+    current.clientY = event.clientY
+    const preview = previewDrag(current)
+    clearDrag()
+    if (!preview) return
+    const x = current.clientX - current.startX
+    if (!current.reordering) {
+      if (Math.abs(x) >= 30) move(current.id, x > 0 ? 'indent' : 'outdent')
+      return
+    }
+    const projection = preview.projection
+    if (!projection?.changed) return
+    attempt(() => {
+      forge.actions.repositionNoteChecklistItem(note.id, current.id, { parentId: projection.parentId, beforeId: projection.beforeId })
+      const destination = projection.parentId && groups.find((group) => group.some(({ item }) => item.id === projection.parentId))
+      setCollapsedIds((collapsed) => { const next = new Set(collapsed); next.delete(current.id); if (destination) next.delete(destination[0].item.id); return next })
+      setOptionsId(undefined)
+      setNotice(`Checklist item moved. ${projection.label}`)
+    })
   }
 
   function restore(id: string) {
@@ -154,9 +244,9 @@ export function NoteChecklist({ forge, note, autoFocus = false, focusItemId }: {
     })
   }
 
-  return <section className="note-checklist" aria-label="Note checklist">
+  return <section className={`note-checklist ${dragging ? 'is-dragging-checklist' : ''}`} aria-label="Note checklist">
     <div className="nc-heading"><h3><ListChecks size={16} />Checklist</h3>{rows.length > 0 && <span>{completed} of {rows.length} done</span>}</div>
-    <p id={descriptionId} className="sr-only">Checked items appear below unfinished items in their group. Slide the dotted handle right to nest, left to unnest. Enter adds an item; Tab / Shift+Tab changes its level.</p>
+    <p id={descriptionId} className="sr-only">Checked items appear below unfinished items in their group. Drag the dotted handle up or down to reorder, right to nest, or left to unnest. The insertion line shows the new position. Escape cancels. Arrow keys on the handle also move an item. Enter adds an item; Tab / Shift+Tab changes its level.</p>
     {groups.length > 0 && <ul className="nc-list" aria-label="Checklist items">{groups.flatMap((group) => {
       const root = group[0].item
       const collapsed = collapsedIds.has(root.id)
@@ -167,9 +257,12 @@ export function NoteChecklist({ forge, note, autoFocus = false, focusItemId }: {
       return visible.map(({ item, depth }) => {
       const name = nameOf(item.text)
       const expanded = optionsId === item.id
-      return <li key={item.id} className={`nc-item ${depth === 0 ? 'nc-root' : ''} ${item.completedAt ? 'is-complete' : ''} ${dragging?.id === item.id ? 'is-sliding' : ''}`} aria-label={`Checklist item: ${name}`} aria-level={depth + 1} style={{ '--check-depth': depth, '--check-slide': dragging?.id === item.id ? `${dragging.x}px` : '0px' } as CSSProperties}>
+      const projection = dragging?.projection
+      const dropBefore = projection?.markerBeforeId === item.id, dropAfter = projection?.markerAfterId === item.id
+      return <li key={item.id} ref={(element) => { if (element) rowElements.current.set(item.id, element); else rowElements.current.delete(item.id) }} data-checklist-item-id={item.id} data-checklist-drop-before={dropBefore ? '' : undefined} data-checklist-drop-after={dropAfter ? '' : undefined} className={`nc-item ${depth === 0 ? 'nc-root' : ''} ${item.completedAt ? 'is-complete' : ''} ${draggedIds.has(item.id) ? 'is-dragging-branch' : ''} ${dragging?.id === item.id && !dragging.reordering ? 'is-sliding' : ''}`} aria-label={`Checklist item: ${name}`} aria-level={depth + 1} style={{ '--check-depth': depth, '--drop-depth': projection?.depth ?? depth, '--check-slide': dragging?.id === item.id ? `${dragging.x}px` : '0px' } as CSSProperties}>
+        {(dropBefore || dropAfter) && <div className={`nc-drop-marker ${dropAfter ? 'is-after' : ''}`} aria-hidden="true"><span>{projection?.label}</span></div>}
         <div className="nc-row">
-          <button type="button" className="nc-grip" aria-label={`Move ${name}`} aria-describedby={descriptionId} title="Slide right or left to change nesting. Arrow keys also move this item." onKeyDown={(event) => gripKey(event, item.id)} onPointerDown={(event) => startDrag(event, item.id)} onPointerMove={updateDrag} onPointerUp={finishDrag} onPointerCancel={(event) => finishDrag(event, true)} onLostPointerCapture={(event) => finishDrag(event, true)}><GripVertical size={18} /></button>
+          <button type="button" className="nc-grip" aria-label={`Move ${name}`} aria-describedby={descriptionId} title="Drag up or down to reorder; right or left to change nesting. Arrow keys also move this item." onKeyDown={(event) => gripKey(event, item.id)} onPointerDown={(event) => startDrag(event, item.id)} onPointerMove={updateDrag} onPointerUp={finishDrag} onPointerCancel={(event) => finishDrag(event, true)} onLostPointerCapture={(event) => finishDrag(event, true)}><GripVertical size={18} /></button>
           <label className="nc-check"><input type="checkbox" aria-label={name} checked={Boolean(item.completedAt)} onChange={() => attempt(() => { forge.actions.toggleNoteChecklistItem(note.id, item.id); setNotice(item.completedAt ? 'Returned to unfinished items in this group.' : 'Checked and moved below unfinished items in this group.') })} /><span className="sr-only">{name}</span></label>
           <input className="nc-text" ref={(element) => { if (element) inputs.current.set(item.id, element); else inputs.current.delete(item.id) }} aria-label={`Edit ${name}`} value={item.text} placeholder="List item" maxLength={10000} onChange={(event) => attempt(() => forge.actions.updateNoteChecklistItem(note.id, item.id, { text: event.target.value }))} onKeyDown={(event) => rowKey(event, item.id)} />
           {depth === 0 && <button type="button" className="nc-icon nc-toggle" aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${name} list`} aria-expanded={!collapsed} title={`${collapsed ? 'Expand' : 'Collapse'} list${childCount ? ` · ${childCount} sub-items` : ''}`} onClick={() => toggleGroup(item.id)}>{collapsed ? <ChevronRight size={17} /> : <ChevronDown size={17} />}{collapsed && childCount > 0 && <span className="nc-child-count" aria-hidden="true">{childCount}</span>}</button>}
@@ -187,7 +280,7 @@ export function NoteChecklist({ forge, note, autoFocus = false, focusItemId }: {
       })
     })}</ul>}
     <button type="button" className="nc-add-main" data-note-checklist-add-start="" onClick={() => add({ text: '' })}><Plus size={17} /><span>Add item</span></button>
-    <span className="sr-only" role="status">{notice}</span>
+    <span className="sr-only" role="status">{dragging?.label ?? notice}</span>
     {lastDeleted && <div className="nc-undo"><span>“{lastDeleted.text}” deleted with its sub-items.</span><button type="button" onClick={() => restore(lastDeleted.id)}><Undo2 size={14} />Undo</button><button type="button" className="nc-icon" aria-label="Dismiss checklist delete notice" onClick={() => setLastDeleted(undefined)}><X size={14} /></button></div>}
     {error && <p className="nc-error" role="alert">{error}</p>}
     {deleted.length > 0 && <details className="nc-trash"><summary>Deleted checklist items · {deleted.length}</summary><p>Restore brings back this item and the sub-items deleted with it.</p>{deletedRoots.map((item) => <div key={item.id}><span>{nameOf(item.text)}</span><button type="button" aria-label={`Restore checklist item: ${nameOf(item.text)}`} onClick={() => restore(item.id)}><Undo2 size={14} />Restore</button></div>)}</details>}

@@ -5,6 +5,7 @@ import { createSeedWorkspace } from '../seed'
 import type { MutationRecord, Workspace } from '../types'
 import { useForgeboard } from './useForgeboard'
 import { fetchTaskInbox, fetchWorkspace, GitHubSyncError, putWorkspace } from '../lib/github'
+import { displayChecklist } from '../lib/noteChecklist'
 
 const memory = vi.hoisted(() => ({ mutations: new Map<string, unknown>(), writes: [] as { workspace: Workspace; records: MutationRecord[] }[] }))
 vi.mock('../lib/db', () => ({
@@ -30,6 +31,55 @@ describe('personal note undo and redo', () => {
     { id: 'grandchild', text: 'Salmon', parentId: 'child', order: 0, createdAt: at, updatedAt: at },
     { id: 'other', text: 'Costco', order: 1, createdAt: at, updatedAt: at },
   ]
+
+  it('saves a dragged branch as one reorder-and-nest action and replays it once without changing another note', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(Date.parse(at) + 60_000))
+    const remote = createSeedWorkspace()
+    remote.personalNotes = [
+      { id: 'shopping', projectId: remote.projects[0].id, title: 'Shopping', body: '', checklist: [...checklist(), { id: 'existing-child', text: 'Turkey', parentId: 'other', order: 0, createdAt: at, updatedAt: at }], createdAt: at, updatedAt: at },
+      { id: 'separate', projectId: remote.projects[1].id, title: 'Other project', body: 'Do not change', checklist: [{ id: 'separate-item', text: 'Independent checklist', order: 0, createdAt: at, updatedAt: at }], createdAt: at, updatedAt: at },
+    ]
+    const separate = structuredClone(remote.personalNotes[1])
+    vi.mocked(fetchWorkspace).mockResolvedValue({ workspace: remote, sha: 'initial' })
+    vi.mocked(putWorkspace).mockResolvedValue('reordered')
+    const { result } = renderHook(() => useForgeboard())
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    await act(async () => { await result.current.actions.updateConnection(config) })
+    expect(putWorkspace).not.toHaveBeenCalled()
+    memory.writes.length = 0
+    const rows = () => displayChecklist(result.current.workspace.personalNotes!.find((note) => note.id === 'shopping')!.checklist!).map(({ item, depth }) => ({ id: item.id, parentId: item.parentId, depth }))
+    const original = rows()
+
+    act(() => { result.current.actions.repositionNoteChecklistItem('shopping', 'parent', { parentId: 'other', beforeId: 'existing-child' }) })
+    expect(rows()).toEqual([
+      { id: 'other', parentId: undefined, depth: 0 },
+      { id: 'parent', parentId: 'other', depth: 1 },
+      { id: 'child', parentId: 'parent', depth: 2 },
+      { id: 'grandchild', parentId: 'child', depth: 3 },
+      { id: 'existing-child', parentId: 'other', depth: 1 },
+    ])
+    expect(result.current.noteHistory.shopping).toEqual({ canUndo: true, canRedo: false })
+    await act(async () => { await result.current.actions.flushLocalSaves() })
+    expect(memory.writes).toHaveLength(1)
+    expect(memory.writes[0].records).toEqual([expect.objectContaining({ type: 'personal-note.checklist.reposition', entityId: 'shopping' })])
+    expect(memory.mutations.size).toBe(1)
+    const moved = rows()
+
+    act(() => { result.current.actions.undoPersonalNote('shopping') })
+    expect(rows()).toEqual(original)
+    expect(result.current.noteHistory.shopping).toEqual({ canUndo: false, canRedo: true })
+    act(() => { result.current.actions.redoPersonalNote('shopping') })
+    expect(rows()).toEqual(moved)
+    expect(result.current.noteHistory.shopping).toEqual({ canUndo: true, canRedo: false })
+    expect(result.current.workspace.personalNotes!.find((note) => note.id === 'separate')).toEqual(separate)
+    await act(async () => { await result.current.actions.syncNow() })
+    const uploaded = vi.mocked(putWorkspace).mock.calls[0][1]
+    expect(displayChecklist(uploaded.personalNotes!.find((note) => note.id === 'shopping')!.checklist!).map(({ item }) => item.id)).toEqual(['other', 'parent', 'child', 'grandchild', 'existing-child'])
+    expect(uploaded.personalNotes!.find((note) => note.id === 'separate')).toEqual(separate)
+    expect(result.current.syncMeta.pendingWrites).toBe(0)
+    expect(memory.mutations.size).toBe(0)
+  })
 
   it('undoes and redoes only the chosen note and persists the replay through the normal outbox', async () => {
     vi.mocked(fetchWorkspace).mockResolvedValue({ workspace: createSeedWorkspace(), sha: 'sha' })
