@@ -113,7 +113,7 @@ public final class NativeNotesInstrumentedTest {
         NotesRepository shared=NotesRepository.get(context,true);assertFalse(shared.isConnected());
         String privateBefore=repository.snapshot().toString();String sharedBefore=shared.snapshot().toString();
         new SecureStore(context,"voice-draft-v1").write(new JSONObject().put("raw","Walmart; Fish; Sauce").put("review","").put("title","").put("vault","personal").put("noteId",NOTE).put("projectId",PROJECT).put("useCurrent",true));
-        try(ActivityScenario<VoiceCaptureActivity> scenario=ActivityScenario.launch(new Intent(context,VoiceCaptureActivity.class))) {
+        try(ActivityScenario<LegacyVoiceCaptureActivity> scenario=ActivityScenario.launch(new Intent(context,LegacyVoiceCaptureActivity.class))) {
             scenario.onActivity(activity->{
                 tagged(activity.getWindow().getDecorView(),"voiceTitle",EditText.class).setText("Reviewed list");
                 tagged(activity.getWindow().getDecorView(),"voiceReview",EditText.class).setText("Walmart\n  Fish\n    Sauce");
