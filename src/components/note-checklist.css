@@ -2,10 +2,8 @@
 .nc-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 7px; }
 .nc-heading h3 { display: inline-flex; align-items: center; gap: 7px; color: #dce4f1; margin: 0; font-size: 13px; font-weight: 650; }
 .nc-heading > span { color: #9caec5; font-size: 11px; }
-.nc-help { color: #8f9fb7; font-size: 10px; line-height: 1.7; margin: 0 0 10px; max-width: 560px; }
 .nc-list { margin: 0; padding: 0; list-style: none; min-width: 0; }
 .nc-root:not(:first-child) { border-top: 1px solid #abb5ce14; padding-top: 5px; }
-.nc-group-end { list-style: none; }
 .nc-item { margin-inline-start: calc(min(var(--check-depth), 6) * 18px); min-width: 0; border-radius: 7px; }
 .nc-row { display: flex; align-items: center; min-height: 44px; min-width: 0; transform: translateX(var(--check-slide, 0px)); border-radius: 7px; }
 .nc-row:focus-within, .nc-item:hover > .nc-row { background: #9baac008; }
@@ -27,13 +25,9 @@
 .nc-actions > button:hover:not(:disabled) { background: #abb5ce14; color: #f0f3fa; }
 .nc-actions > button:disabled { opacity: .35; cursor: not-allowed; }
 .nc-actions > .nc-delete { color: #dbacb9; margin-left: auto; }
-.nc-add-child, .nc-add-main { display: flex; align-items: center; gap: 7px; min-height: 44px; min-width: 44px; padding: 8px 11px; border-radius: 8px; font-size: 12px !important; text-align: left; }
-.nc-add-child { margin: 0 0 7px 58px; border: 0; background: transparent; color: #9eb6bd; }
-.nc-add-child:hover, .nc-add-child:focus-visible { color: #c4e8de; background: #8dcabb14; }
-.nc-add-hint { font-size: 10px; color: #7f91aa; }
-.nc-add-main { width: 100%; margin: 8px 0 0; border: 1px dashed #3b4b63; background: transparent; color: #abc9cf; }
+.nc-add-main { display: flex; align-items: center; gap: 7px; min-height: 44px; min-width: 44px; padding: 8px 11px; border-radius: 8px; font-size: 12px !important; text-align: left; width: 100%; margin: 8px 0 0; border: 1px dashed #3b4b63; background: transparent; color: #abc9cf; }
 .nc-add-main:hover, .nc-add-main:focus-visible { border-color: #8dcabb; background: #8dcabb0a; color: #c4e8de; }
-.nc-add-main > svg, .nc-add-child > svg { flex: 0 0 auto; }
+.nc-add-main > svg { flex: 0 0 auto; }
 .nc-undo { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; padding: 7px 9px; margin-top: 10px; background: #8dcabb12; border: 1px solid #476d65; border-radius: 8px; color: #bddcd3; }
 .nc-undo > span { flex: 1; min-width: 100px; overflow-wrap: anywhere; font-size: 10px; }
 .nc-undo > button:not(.nc-icon), .nc-trash button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 40px; padding: 5px 7px; background: transparent; color: #c2eadf; border: 0; font-size: 11px !important; white-space: nowrap; }
@@ -52,6 +46,4 @@
   .nc-actions { margin-left: 0; }
   .nc-actions > button { min-height: 44px; padding: 7px; }
   .nc-actions > .nc-delete { margin-left: 0; }
-  .nc-help { font-size: 10px; }
-  .nc-add-child { margin-left: 54px; }
 }

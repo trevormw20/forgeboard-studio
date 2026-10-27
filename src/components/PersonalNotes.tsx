@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
-import { ArrowLeft, Check, ChevronRight, FolderPlus, Layers3, ListChecks, NotebookPen, Palette, Pin, Plus, Search, Tag, Trash2, Type, Undo2, X } from 'lucide-react'
+import { ArrowLeft, Check, ChevronRight, FolderPlus, Layers3, NotebookPen, Palette, Pin, Plus, Search, Tag, Trash2, Type, Undo2, X } from 'lucide-react'
 import type { useForgeboard } from '../hooks/useForgeboard'
 import type { NoteChecklistItem, PersonalNote } from '../types'
 import { deletedPersonalNoteRoots } from '../lib/personalNotes'
-import { orderedChecklist } from '../lib/noteChecklist'
+import { orderedChecklist, recoverChecklistSnapshot } from '../lib/noteChecklist'
 import { createId, isoNow } from '../lib/ids'
 import { NoteConflictCopies } from './NoteConflictCopies'
 import { NoteChecklist } from './NoteChecklist'
@@ -26,6 +26,10 @@ const noteTitle = (note: PersonalNote) => note.title.trim() || orderedChecklist(
 function firstCheckbox(text = ''): NoteChecklistItem {
   const at = isoNow()
   return { id: createId('note-check'), text, order: 0, createdAt: at, updatedAt: at }
+}
+function newChecklist(projectId?: string, parentId?: string, color = '#8094ad', labelIds: string[] = []): PersonalNote {
+  const at = isoNow()
+  return { id: createId('note-draft'), projectId, parentId, title: '', body: '', checklist: [firstCheckbox()], color, labelIds, createdAt: at, updatedAt: at }
 }
 const scopeKey = (id?: string) => id ?? ''
 const sameScope = (left?: string, right?: string) => scopeKey(left) === scopeKey(right)
@@ -69,16 +73,16 @@ export function PersonalNotes({ forge, onAddProject, initialProjectId, onProject
   const [selectedId, setSelectedId] = useState<string>()
   const [localQuery, setLocalQuery] = useState('')
   const query = searchQuery ?? localQuery
-  const [capture, setCapture] = useState('')
-  const captureTarget = useRef<{ noteId: string; itemId: string } | undefined>(undefined)
+  // The first checkbox is already the editor. Nothing is written merely by
+  // opening Notes; the same row is promoted in place on the first real edit.
+  const [session, setSession] = useState(() => { const note = newChecklist(initialProjectId); return { key: note.id, note } })
+  const persistedId = useRef<string | undefined>(undefined)
   const captureFailed = useRef(false)
   const [captureBlocked, setCaptureBlocked] = useState(false)
   const setCaptureFailure = useCallback((failed: boolean) => { captureFailed.current = failed; setCaptureBlocked(failed) }, [])
-  const [focusEditor, setFocusEditor] = useState(true)
-  const [focusItemId, setFocusItemId] = useState<string>()
-  const [titleOpenId, setTitleOpenId] = useState<string>()
-  const [bodyOpenId, setBodyOpenId] = useState<string>()
-  const editor = useRef<HTMLElement | null>(null)
+  const [focusEditor, setFocusEditor] = useState(false)
+  const [titleOpen, setTitleOpen] = useState(false)
+  const [bodyOpen, setBodyOpen] = useState(false)
   const [labelFilter, setLabelFilter] = useState('')
   const [showLabels, setShowLabels] = useState(false)
   const [labelId, setLabelId] = useState<string>()
@@ -87,17 +91,17 @@ export function PersonalNotes({ forge, onAddProject, initialProjectId, onProject
   const [error, setError] = useState('')
   const [lastDeleted, setLastDeleted] = useState<{ id: string; title: string }>()
   const { flushLocalSaves } = forge.actions
-  useEffect(() => { onCaptureBlockedChange?.(captureBlocked && Boolean(capture.trim())) }, [capture, captureBlocked, onCaptureBlockedChange])
+  useEffect(() => { onCaptureBlockedChange?.(captureBlocked) }, [captureBlocked, onCaptureBlockedChange])
   useEffect(() => () => onCaptureBlockedChange?.(false), [onCaptureBlockedChange])
   useEffect(() => {
     const warn = (event: BeforeUnloadEvent) => {
-      if (!captureFailed.current || !capture.trim()) return
+      if (!captureFailed.current) return
       event.preventDefault()
       event.returnValue = ''
     }
     window.addEventListener('beforeunload', warn)
     return () => window.removeEventListener('beforeunload', warn)
-  }, [capture])
+  }, [])
   useEffect(() => () => { void flushLocalSaves().catch(() => { /* The draft stays queued for retry. */ }) }, [flushLocalSaves])
   useEffect(() => {
     const incoming = initialProjectId ?? ''
@@ -114,10 +118,13 @@ export function PersonalNotes({ forge, onAddProject, initialProjectId, onProject
     setLabelName('')
     setLocalQuery('')
     onSearchQueryChange?.('')
-    captureTarget.current = undefined
+    const note = newChecklist(incoming || undefined)
+    setSession({ key: note.id, note })
+    persistedId.current = undefined
     setCaptureFailure(false)
-    setFocusItemId(undefined)
-    setCapture('')
+    setFocusEditor(false)
+    setTitleOpen(false)
+    setBodyOpen(false)
     setError('')
   }, [initialProjectId, flushLocalSaves, onSearchQueryChange, setCaptureFailure])
   function flushNote() { void flushLocalSaves().catch(() => { /* Save errors are shown below the editor. */ }) }
@@ -134,10 +141,19 @@ export function PersonalNotes({ forge, onAddProject, initialProjectId, onProject
   const allLabels = (forge.workspace.noteLabels ?? []).filter((label) => !label.deletedAt)
   const labels = allLabels.filter((label) => !label.projectId || label.projectId === scope)
   const selected = scopedNotes.find((note) => note.id === selectedId)
+  // A remote deletion must not remove the row from under the user's cursor.
+  // Keep the open snapshot until they leave, or explicitly recover a failed edit.
+  const removedWhileOpen = Boolean(selectedId && (!selected || session.note.checklist?.some((item) => !item.deletedAt && !selected.checklist?.some((current) => current.id === item.id && !current.deletedAt))))
+  const editing = captureBlocked || removedWhileOpen ? session.note : selected ?? session.note
+  useEffect(() => {
+    // Retain the last external GitHub/cache snapshot if a later sync deletes it.
+    // oxlint-disable-next-line react/set-state-in-effect
+    if (selected && !removedWhileOpen && !captureBlocked) setSession((current) => current.note === selected ? current : { ...current, note: selected })
+  }, [selected, removedWhileOpen, captureBlocked])
   const scopeName = project?.name ?? (scope ? 'Archived project notes' : 'General notes')
   const breadcrumbs: PersonalNote[] = []
-  if (selected) {
-    let current: PersonalNote | undefined = selected
+  if (editing) {
+    let current: PersonalNote | undefined = editing
     const visited = new Set<string>()
     while (current && !visited.has(current.id)) {
       visited.add(current.id)
@@ -174,10 +190,13 @@ export function PersonalNotes({ forge, onAddProject, initialProjectId, onProject
     setLabelId(undefined)
     setLabelName('')
     setError('')
-    captureTarget.current = undefined
+    const note = newChecklist(id || undefined)
+    setSession({ key: note.id, note })
+    persistedId.current = undefined
     setCaptureFailure(false)
-    setFocusItemId(undefined)
-    setCapture('')
+    setFocusEditor(false)
+    setTitleOpen(false)
+    setBodyOpen(false)
     onProjectChange?.(id || undefined)
   }
 
@@ -195,12 +214,12 @@ export function PersonalNotes({ forge, onAddProject, initialProjectId, onProject
     }
     setSelectedId(id)
     setFocusEditor(true)
-    setFocusItemId(undefined)
-    setTitleOpenId(target?.title ? id : undefined)
-    setBodyOpenId(target?.body ? id : undefined)
-    captureTarget.current = undefined
+    const note = target ?? newChecklist(scope || undefined)
+    setSession({ key: createId('editor'), note })
+    persistedId.current = target?.id
+    setTitleOpen(Boolean(target?.title))
+    setBodyOpen(Boolean(target?.body))
     setCaptureFailure(false)
-    setCapture('')
     setQuery('')
     setLabelFilter('')
     setError('')
@@ -208,78 +227,99 @@ export function PersonalNotes({ forge, onAddProject, initialProjectId, onProject
 
   function addNote(parentId?: string) {
     if (captureFailed.current) return
-    attempt(() => {
-      const id = forge.actions.addPersonalNote({ projectId: scope || undefined, parentId, title: '', body: '', checklist: [firstCheckbox()], color: selected?.color ?? '#8094ad', labelIds: labelFilter ? [labelFilter] : [] })
-      openNote(id)
-    })
-  }
-
-  function captureNote(value: string) {
-    setCapture(value)
-    if (!captureTarget.current && !value.trim()) return
-    setCaptureFailure(!attempt(() => {
-      if (captureTarget.current) {
-        const { noteId, itemId } = captureTarget.current
-        forge.actions.updateNoteChecklistItem(noteId, itemId, { text: value })
-      } else {
-        const item = firstCheckbox(value)
-        const id = forge.actions.addPersonalNote({ projectId: scope || undefined, title: '', body: '', checklist: [item], color: '#8094ad', labelIds: labelFilter ? [labelFilter] : [] })
-        captureTarget.current = { noteId: id, itemId: item.id }
-        setSelectedId(id)
-        setFocusEditor(false)
-        setFocusItemId(undefined)
-        setTitleOpenId(undefined)
-        setQuery('')
-        setLabelFilter('')
-      }
-    }))
-  }
-
-  function finishCapture() {
-    // Keep a failed draft visible for retry instead of clearing the only copy.
-    if (captureFailed.current) return
     flushNote()
-    captureTarget.current = undefined
-    setCapture('')
+    const note = newChecklist(scope || undefined, parentId, editing.color, labelFilter ? [labelFilter] : [])
+    setSession({ key: note.id, note })
+    persistedId.current = undefined
+    setSelectedId(undefined)
+    setFocusEditor(true)
+    setTitleOpen(false)
+    setBodyOpen(false)
+    setQuery('')
+    setError('')
   }
 
-  function continueCapture() {
-    const target = captureTarget.current
-    if (!target || captureFailed.current) return
+  function activateEditor(note = editing): string {
+    if (persistedId.current) {
+      const current = allNotes.find((item) => item.id === persistedId.current)
+      if (current && !sameScope(current.projectId, session.note.projectId)) throw new Error('This checklist moved to another notebook. Save your draft as a new checklist in the original notebook.')
+      return persistedId.current
+    }
+    const { projectId, parentId, title, body, checklist, color, labelIds, pinned } = note
+    const id = forge.actions.addPersonalNote({ projectId, parentId, title, body, checklist, color, labelIds, pinned })
+    // Resolve rapidly repeated events before React renders the saved snapshot.
+    persistedId.current = id
+    setSelectedId(id)
+    setSession((current) => ({ ...current, note: { ...note, id } }))
+    return id
+  }
+
+  function editCheckbox(itemId: string, text: string) {
+    const snapshot = { ...editing, checklist: editing.checklist?.map((item) => item.id === itemId ? { ...item, text } : item) }
+    setSession((current) => ({ ...current, note: snapshot }))
+    // Whitespace is visible in the draft but does not create an empty saved note.
+    if (!persistedId.current && !text.trim()) return
+    const creating = !persistedId.current
     const okay = attempt(() => {
-      const nextId = capture.trim() ? forge.actions.addNoteChecklistItem(target.noteId, { text: '', afterId: target.itemId }) : target.itemId
-      setFocusItemId(nextId)
-      finishCapture()
+      const id = activateEditor(snapshot)
+      if (!creating) forge.actions.updateNoteChecklistItem(id, itemId, { text })
     })
+    // Another row may still contain a failed edit. Only explicit recovery or
+    // discard clears that protection, not a successful edit elsewhere.
     if (!okay) setCaptureFailure(true)
   }
 
   function recoverCapture() {
-    if (!capture.trim()) return
+    if (!captureFailed.current) return
     const okay = attempt(() => {
-      const item = firstCheckbox(capture)
-      const id = forge.actions.addPersonalNote({ projectId: scope || undefined, title: '', body: '', checklist: [item], color: '#8094ad', labelIds: [] })
-      captureTarget.current = { noteId: id, itemId: item.id }
+      const { projectId, parentId, title, body, color, labelIds, pinned } = editing
+      const checklist = recoverChecklistSnapshot(editing.checklist ?? [])
+      const id = forge.actions.addPersonalNote({ projectId, parentId, title, body, checklist, color, labelIds, pinned })
+      persistedId.current = id
       setCaptureFailure(false)
       setSelectedId(id)
-      setFocusEditor(false)
-      setFocusItemId(item.id)
-      finishCapture()
+      setSession((current) => ({ ...current, note: { ...editing, id, checklist } }))
+      flushNote()
     })
     if (!okay) setCaptureFailure(true)
   }
 
   function discardFailedCapture() {
-    if (!window.confirm('Discard the unsaved text in quick entry? Already saved notes will stay unchanged.')) return
+    if (!window.confirm('Discard this unsaved checklist edit? Already saved notes will stay unchanged.')) return
     setCaptureFailure(false)
-    captureTarget.current = undefined
-    setCapture('')
     setError('')
+    openNote()
   }
 
   function updateNote(changes: NoteChanges) {
-    if (selected) attempt(() => forge.actions.updatePersonalNote(selected.id, { ...(selected.parentId && !parentOf(selected, notes) ? { parentId: undefined } : {}), ...changes }))
+    const okay = attempt(() => forge.actions.updatePersonalNote(activateEditor(), { ...(editing.parentId && !parentOf(editing, notes) ? { parentId: undefined } : {}), ...changes }))
+    if (okay) setSession((current) => ({ ...current, note: { ...current.note, ...changes } }))
   }
+
+  function deleteCheckbox(itemId: string) {
+    forge.actions.deleteNoteChecklistItem(activateEditor(), itemId)
+    // An intentional local deletion is not a missing remote draft.
+    const rows = orderedChecklist(editing.checklist ?? [])
+    const index = rows.findIndex(({ item }) => item.id === itemId)
+    const removed = new Set<string>()
+    if (index >= 0) {
+      removed.add(itemId)
+      for (let next = index + 1; next < rows.length && rows[next].depth > rows[index].depth; next++) removed.add(rows[next].item.id)
+    }
+    const at = isoNow()
+    setSession((current) => ({ ...current, note: { ...current.note, checklist: current.note.checklist?.map((item) => removed.has(item.id) ? { ...item, deletedAt: at } : item) } }))
+  }
+
+  // Use the existing checklist for both a new unsaved row and saved notes. Its
+  // React key and item IDs do not change when the first keystroke saves the note.
+  const checklistForge: Forge = { ...forge, actions: { ...forge.actions,
+    updateNoteChecklistItem: (_noteId, itemId, input) => editCheckbox(itemId, input.text),
+    addNoteChecklistItem: (_noteId, input) => forge.actions.addNoteChecklistItem(activateEditor(), input),
+    toggleNoteChecklistItem: (_noteId, itemId) => forge.actions.toggleNoteChecklistItem(activateEditor(), itemId),
+    moveNoteChecklistItem: (_noteId, itemId, direction) => forge.actions.moveNoteChecklistItem(activateEditor(), itemId, direction),
+    deleteNoteChecklistItem: (_noteId, itemId) => deleteCheckbox(itemId),
+    restoreNoteChecklistItem: (_noteId, itemId) => forge.actions.restoreNoteChecklistItem(activateEditor(), itemId),
+  } }
 
   function removeNote(note: PersonalNote) {
     attempt(() => {
@@ -329,41 +369,35 @@ export function PersonalNotes({ forge, onAddProject, initialProjectId, onProject
       <div className="pn-notebook-top"><label htmlFor="pn-project">Project notebook</label><button className="pn-text-button" onClick={onAddProject}><FolderPlus size={15} />Add project notes</button></div>
       <select id="pn-project" value={scope} onChange={(event) => changeScope(event.target.value)}><option value="">General notes</option>{projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}{!scopeExists && <option value={scope}>Archived project notes</option>}</select>
       <div className="pn-project-chips" aria-label="Switch project notebook"><button className={!scope ? 'active' : ''} aria-pressed={!scope} onClick={() => changeScope('')}><NotebookPen size={15} />General</button>{projects.map((item) => <button key={item.id} className={scope === item.id ? 'active' : ''} aria-pressed={scope === item.id} onClick={() => changeScope(item.id)} style={{ '--project-color': item.color } as CSSProperties}><span className="pn-project-dot" />{item.name}</button>)}</div>
-      <p>Every Forgeboard project gets a notebook automatically. Notes stay separate from tasks and chat handoffs.</p>
     </section>
 
     {searchQuery === undefined && <div className="pn-search pn-standalone-search"><Search size={17} /><input aria-label="Search all notes" type="search" placeholder="Search every project’s notes…" value={query} onChange={(event) => { flushNote(); setQuery(event.target.value) }} />{query && <button className="pn-icon" aria-label="Clear note search" onClick={() => setQuery('')}><X size={15} /></button>}</div>}
-    <div className="pn-toolbar">
-      <div className="pn-capture"><ListChecks size={18} /><input aria-label="Start a checklist note" placeholder={`Type your first checkbox in ${scopeName}…`} value={capture} maxLength={10000} onChange={(event) => captureNote(event.target.value)} onBlur={finishCapture} onKeyDown={(event) => { if (event.key === 'Enter' && !event.nativeEvent.isComposing && captureTarget.current) { event.preventDefault(); continueCapture() } }} /></div>
-      <button className="pn-new-button" onClick={() => addNote(selected?.id)}><Plus size={17} />{selected ? 'Add sub-note' : 'New note'}</button>
-    </div>
     {globalSearch && <div className="pn-global-search-state"><Search size={15} /><span>Searching <strong>all project notebooks</strong> for “{query.trim()}”</span><button className="pn-text-button" onClick={() => setQuery('')}><X size={14} />Clear search</button></div>}
 
-    <div className="pn-scope-bar"><div><span className="pn-scope-icon" style={{ color: project?.color ?? '#b59be8' }}>{project?.icon ?? <NotebookPen size={19} />}</span><h2>{scopeName}</h2><span className="pn-total">{scopedNotes.length} note{scopedNotes.length === 1 ? '' : 's'}</span></div><button className="pn-text-button" aria-expanded={showLabels} onClick={() => setShowLabels(!showLabels)}><Tag size={14} />Labels</button></div>
+    <div className="pn-scope-bar"><div><span className="pn-scope-icon" style={{ color: project?.color ?? '#b59be8' }}>{project?.icon ?? <NotebookPen size={19} />}</span><h2>{scopeName}</h2><span className="pn-total">{scopedNotes.length} note{scopedNotes.length === 1 ? '' : 's'}</span></div><div className="pn-scope-actions"><button className="pn-text-button" onClick={() => addNote(selected?.id)}><Plus size={15} />{selected ? 'Add sub-note' : 'New note'}</button><button className="pn-text-button" aria-expanded={showLabels} onClick={() => setShowLabels(!showLabels)}><Tag size={14} />Labels</button></div></div>
 
     {!globalSearch && labels.length > 0 && <div className="pn-label-filters" aria-label="Filter notes by label"><button className={`pn-label-filter ${!labelFilter ? 'active' : ''}`} aria-pressed={!labelFilter} onClick={() => setLabelFilter('')}>All labels</button>{labels.map((label) => <button key={label.id} className={`pn-label-filter ${labelFilter === label.id ? 'active' : ''}`} style={noteStyle(label.color)} aria-pressed={labelFilter === label.id} onClick={() => setLabelFilter(labelFilter === label.id ? '' : label.id)}><i />{label.name}</button>)}</div>}
 
     {showLabels && <section className="pn-label-manager" aria-label="Manage note labels"><div><h3>Make labels your own</h3><p>Labels belong to this notebook. Choose any color.</p></div><form onSubmit={(event) => { event.preventDefault(); saveLabel() }}><label>Label name<input required maxLength={80} value={labelName} placeholder="Ideas, references, launch…" onChange={(event) => setLabelName(event.target.value)} /></label><label className="pn-custom-color">Label color<input type="color" value={labelColor} onChange={(event) => setLabelColor(event.target.value)} /></label><button className="pn-small-button" type="submit">{labelId ? 'Save label' : 'Add label'}</button>{labelId && <button type="button" className="pn-text-button" onClick={() => { setLabelId(undefined); setLabelName('') }}>Cancel edit</button>}</form>{labels.length > 0 && <ul>{labels.map((label) => <li key={label.id}><span className="pn-label" style={noteStyle(label.color)}><i />{label.name}{!label.projectId && scope && <small> · General</small>}</span><button className="pn-text-button" onClick={() => { setLabelId(label.id); setLabelName(label.name); setLabelColor(label.color) }}>Edit<span className="sr-only"> label {label.name}</span></button><button className="pn-icon" aria-label={`Delete label: ${label.name}`} onClick={() => attempt(() => { forge.actions.deleteNoteLabel(label.id); if (labelFilter === label.id) setLabelFilter(''); if (labelId === label.id) { setLabelId(undefined); setLabelName('') } })}><Trash2 size={14} /></button></li>)}</ul>}</section>}
 
     {lastDeleted && <div className="pn-undo" role="status"><span>“{lastDeleted.title}” and its sub-notes moved to trash.</span><button onClick={() => attempt(() => { forge.actions.restorePersonalNote(lastDeleted.id); setLastDeleted(undefined) })}><Undo2 size={15} />Undo delete</button><button className="pn-icon" aria-label="Dismiss delete notice" onClick={() => setLastDeleted(undefined)}><X size={14} /></button></div>}
-    {(error || captureBlocked) && <div className="pn-error" role="alert">{error || 'Your quick-entry draft could not be saved.'}{captureBlocked && <><p>Your quick-entry draft is still here. Copy it or save it as a new checklist before leaving Notes.</p><button className="pn-text-button" onClick={recoverCapture} disabled={!scopeExists || !capture.trim()}>Save draft as new checklist</button><button className="pn-text-button" onClick={discardFailedCapture}>Discard unsaved draft</button></>}</div>}
+    {(error || captureBlocked) && <div className="pn-error" role="alert">{error || 'Your checklist edit could not be saved.'}{captureBlocked && <><p>Your edited checkbox is still here. Copy it or save it as a new checklist before leaving Notes.</p><button className="pn-text-button" onClick={recoverCapture} disabled={!scopeExists}>Save draft as new checklist</button><button className="pn-text-button" onClick={discardFailedCapture}>Discard unsaved draft</button></>}</div>}
     {forge.localSave.error && <p className="pn-error" role="alert">Your latest edits are still open here, but could not be saved on this device. Keep this tab open.<button className="pn-text-button" onClick={flushNote}>Retry save</button></p>}
 
-    {selected && !searching && <>
+    {!searching && <>
       <nav className="pn-breadcrumbs" aria-label="Note location"><button onClick={() => openNote()}>{scopeName}</button>{breadcrumbs.map((note, index) => <span key={note.id}><ChevronRight size={13} />{index === breadcrumbs.length - 1 ? <span aria-current="page">{noteTitle(note)}</span> : <button onClick={() => openNote(note.id)}>{noteTitle(note)}</button>}</span>)}</nav>
-      <section ref={editor} className="pn-editor" aria-label="Note editor" style={noteStyle(selected.color)} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) flushNote() }}>
-        <div className="pn-editor-top"><button className="pn-text-button" onClick={() => openNote(parentOf(selected, notes)?.id)}><ArrowLeft size={16} />{parentOf(selected, notes) ? 'Back to parent' : 'All notes'}</button><div>{!selected.title && titleOpenId !== selected.id && <button className="pn-icon" aria-label="Add title" title="Add optional title" onClick={() => setTitleOpenId(selected.id)}><Type size={16} /></button>}<button className={`pn-icon ${selected.pinned ? 'is-pinned' : ''}`} aria-label={selected.pinned ? 'Unpin current note' : 'Pin current note'} aria-pressed={Boolean(selected.pinned)} onClick={() => updateNote({ pinned: !selected.pinned })}><Pin size={16} /></button><button className="pn-icon" aria-label="Delete current note and sub-notes" onClick={() => removeNote(selected)}><Trash2 size={16} /></button><button className="pn-small-button" aria-label="Close note" onClick={() => openNote(parentOf(selected, notes)?.id)}><X size={15} />Close</button></div></div>
-        {(selected.title || titleOpenId === selected.id) && <label className="pn-title-label"><span className="sr-only">Note title</span><input autoFocus key={selected.id} aria-label="Note title" placeholder="Optional title" value={selected.title} maxLength={300} onChange={(event) => { setTitleOpenId(selected.id); updateNote({ title: event.target.value }) }} /></label>}
-        <NoteChecklist key={selected.id} forge={forge} note={selected} autoFocus={focusEditor} focusItemId={focusItemId} />
-        {(selected.body || bodyOpenId === selected.id) && <NoteDetails key={`${selected.id}:details`} body={selected.body} onChange={(body) => { setBodyOpenId(selected.id); updateNote({ body }) }} />}
-        <div className="pn-editor-options"><fieldset className="pn-colors"><legend><Palette size={14} />Note color</legend><div>{COLORS.map((color) => <button key={color.name} type="button" title={color.name} aria-label={`${color.name} note color`} aria-pressed={selected.color === color.color} style={{ backgroundColor: color.color }} onClick={() => updateNote({ color: color.color })}>{selected.color === color.color && <Check size={15} />}</button>)}<label className="pn-color-picker" title="Custom note color"><Palette size={15} /><span className="sr-only">Custom note color</span><input aria-label="Custom note color" type="color" value={selected.color ?? '#8094ad'} onChange={(event) => updateNote({ color: event.target.value })} /></label></div></fieldset><div className="pn-note-labels"><span><Tag size={14} />Labels</span><div>{labels.map((label) => <label className={`pn-label-check ${selected.labelIds?.includes(label.id) ? 'active' : ''}`} key={label.id} style={noteStyle(label.color)}><input type="checkbox" checked={Boolean(selected.labelIds?.includes(label.id))} onChange={(event) => updateNote({ labelIds: event.target.checked ? [...(selected.labelIds ?? []), label.id] : selected.labelIds?.filter((id) => id !== label.id) })} />{label.name}</label>)}<button className="pn-text-button" onClick={() => setShowLabels(true)}><Plus size={13} />{labels.length ? 'Manage' : 'Create a label'}</button></div></div></div>
+      <section className="pn-editor" aria-label="Note editor" style={noteStyle(editing.color)} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) flushNote() }}>
+        <div className="pn-editor-top"><button className="pn-text-button" onClick={() => openNote(parentOf(editing, notes)?.id)}><ArrowLeft size={16} />{parentOf(editing, notes) ? 'Back to parent' : 'All notes'}</button><div>{!editing.title && !titleOpen && <button className="pn-icon" aria-label="Add title" title="Add optional title" onClick={() => setTitleOpen(true)}><Type size={16} /></button>}<button className={`pn-icon ${editing.pinned ? 'is-pinned' : ''}`} aria-label={editing.pinned ? 'Unpin current note' : 'Pin current note'} aria-pressed={Boolean(editing.pinned)} onClick={() => updateNote({ pinned: !editing.pinned })}><Pin size={16} /></button><button className="pn-icon" aria-label="Delete current note and sub-notes" onClick={() => selected ? removeNote(selected) : openNote()}><Trash2 size={16} /></button><button className="pn-small-button" aria-label="Close note" onClick={() => openNote(parentOf(editing, notes)?.id)}><X size={15} />Close</button></div></div>
+        {(editing.title || titleOpen) && <label className="pn-title-label"><span className="sr-only">Note title</span><input autoFocus key={session.key} aria-label="Note title" placeholder="Optional title" value={editing.title} maxLength={300} onChange={(event) => { setTitleOpen(true); updateNote({ title: event.target.value }) }} /></label>}
+        <NoteChecklist key={session.key} forge={checklistForge} note={editing} autoFocus={focusEditor} />
+        {(editing.body || bodyOpen) && <NoteDetails key={`${session.key}:details`} body={editing.body} onChange={(body) => { setBodyOpen(true); updateNote({ body }) }} />}
+        <div className="pn-editor-options"><fieldset className="pn-colors"><legend><Palette size={14} />Note color</legend><div>{COLORS.map((color) => <button key={color.name} type="button" title={color.name} aria-label={`${color.name} note color`} aria-pressed={editing.color === color.color} style={{ backgroundColor: color.color }} onClick={() => updateNote({ color: color.color })}>{editing.color === color.color && <Check size={15} />}</button>)}<label className="pn-color-picker" title="Custom note color"><Palette size={15} /><span className="sr-only">Custom note color</span><input aria-label="Custom note color" type="color" value={editing.color ?? '#8094ad'} onChange={(event) => updateNote({ color: event.target.value })} /></label></div></fieldset><div className="pn-note-labels"><span><Tag size={14} />Labels</span><div>{labels.map((label) => <label className={`pn-label-check ${editing.labelIds?.includes(label.id) ? 'active' : ''}`} key={label.id} style={noteStyle(label.color)}><input type="checkbox" checked={Boolean(editing.labelIds?.includes(label.id))} onChange={(event) => updateNote({ labelIds: event.target.checked ? [...(editing.labelIds ?? []), label.id] : editing.labelIds?.filter((id) => id !== label.id) })} />{label.name}</label>)}<button className="pn-text-button" onClick={() => setShowLabels(true)}><Plus size={13} />{labels.length ? 'Manage' : 'Create a label'}</button></div></div></div>
         <p className="pn-save-state" role="status"><Check size={12} />{cloudState}</p>
-        <p className="pn-autosave-hint">Note text autosaves after a second of no typing, and when you leave. No save button needed.</p>
       </section>
     </>}
 
-    <div className="pn-grid-heading"><h3>{searching ? `${globalSearch ? 'All notebooks' : 'Search results'}${shown.length ? ` · ${shown.length}` : ''}` : selected ? 'Sub-notes' : 'Your notes'}</h3>{selected && !searching && <span>Keep going deeper—each sub-note can have its own sub-notes.</span>}{searching && <button className="pn-text-button" onClick={() => { setQuery(''); setLabelFilter('') }}>Clear filters</button>}</div>
-    {!shown.length ? <div className="pn-empty"><span className="pn-empty-icon">{searching ? <Search size={25} /> : selected ? <Layers3 size={25} /> : <NotebookPen size={25} />}</span><h3>{searching ? 'No matching notes' : selected ? 'Give this thought a little room' : `A fresh page for ${scopeName === 'General notes' ? 'you' : scopeName}`}</h3><p>{searching ? 'Try another word or clear your label filter.' : selected ? 'Break it into sub-notes, then go as deep as you need.' : 'Ideas, references, plans, or things you want to remember. No task required.'}</p>{!searching && <button className="pn-new-button" onClick={() => addNote(selected?.id)}><Plus size={16} />{selected ? 'Add first sub-note' : 'Create your first note'}</button>}</div> : <>{pinned.length > 0 && <><h4 className="pn-group-title"><Pin size={13} />Pinned</h4><div className="pn-grid">{pinned.map(renderCard)}</div></>}{others.length > 0 && <>{pinned.length > 0 && <h4 className="pn-group-title">Other notes</h4>}<div className="pn-grid">{others.map(renderCard)}</div></>}</>}
+    {(searching || shown.length > 0) && <div className="pn-grid-heading"><h3>{searching ? `${globalSearch ? 'All notebooks' : 'Search results'}${shown.length ? ` · ${shown.length}` : ''}` : selected ? 'Sub-notes' : 'Your notes'}</h3>{searching && <button className="pn-text-button" onClick={() => { setQuery(''); setLabelFilter('') }}>Clear filters</button>}</div>}
+    {!shown.length ? searching && <div className="pn-empty"><span className="pn-empty-icon"><Search size={25} /></span><h3>No matching notes</h3><p>Try another word or clear your label filter.</p></div> : <>{pinned.length > 0 && <><h4 className="pn-group-title"><Pin size={13} />Pinned</h4><div className="pn-grid">{pinned.map(renderCard)}</div></>}{others.length > 0 && <>{pinned.length > 0 && <h4 className="pn-group-title">Other notes</h4>}<div className="pn-grid">{others.map(renderCard)}</div></>}</>}
     {deletedNotes.length > 0 && <details className="pn-trash"><summary><Trash2 size={15} />Recently deleted<span>{deletedNotes.length}</span></summary><p>Deleted notes stay in your private workspace until you restore them. Restoring a group brings back the sub-notes deleted with it.</p><ul>{(deletedRoots.length ? deletedRoots : [deletedNotes[0]]).sort((a, b) => Date.parse(b.deletedAt!) - Date.parse(a.deletedAt!)).map((note) => <li key={note.id}><div><strong>{noteTitle(note)}</strong><small>Deleted {new Date(note.deletedAt!).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</small></div><button className="pn-small-button" aria-label={`Restore note group: ${noteTitle(note)}`} onClick={() => attempt(() => { forge.actions.restorePersonalNote(note.id); if (lastDeleted?.id === note.id) setLastDeleted(undefined) })}><Undo2 size={14} />Restore group</button></li>)}</ul></details>}
     <NoteConflictCopies forge={forge} projectId={scope || undefined} />
     <footer className="pn-footer"><Check size={13} /><span>{cloudState}. Notes are not sent to AI for summaries.</span></footer>

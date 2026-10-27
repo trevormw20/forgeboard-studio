@@ -1,4 +1,4 @@
-import { Fragment, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react'
+import { useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react'
 import { ArrowDown, ArrowUp, ChevronDown, ChevronLeft, ChevronRight, CornerDownRight, GripVertical, ListChecks, MoreHorizontal, Plus, Trash2, Undo2, X } from 'lucide-react'
 import type { useForgeboard } from '../hooks/useForgeboard'
 import { canMoveChecklistItem, deletedChecklistRoots, orderedChecklist } from '../lib/noteChecklist'
@@ -97,11 +97,6 @@ export function NoteChecklist({ forge, note, autoFocus = false, focusItemId }: {
     })
   }
 
-  function addToGroup(id: string) {
-    setCollapsedIds((current) => { const next = new Set(current); next.delete(id); return next })
-    add({ text: '', parentId: id })
-  }
-
   function toggleGroup(id: string) {
     setCollapsedIds((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next })
     setOptionsId(undefined)
@@ -161,19 +156,18 @@ export function NoteChecklist({ forge, note, autoFocus = false, focusItemId }: {
 
   return <section className="note-checklist" aria-label="Note checklist">
     <div className="nc-heading"><h3><ListChecks size={16} />Checklist</h3>{rows.length > 0 && <span>{completed} of {rows.length} done</span>}</div>
-    <p id={descriptionId} className="nc-help">Add items below each list. Slide the dotted handle right to nest, left to unnest. Enter adds an item; Tab / Shift+Tab changes its level.</p>
+    <p id={descriptionId} className="sr-only">Slide the dotted handle right to nest, left to unnest. Enter adds an item; Tab / Shift+Tab changes its level.</p>
     {groups.length > 0 && <ul className="nc-list" aria-label="Checklist items">{groups.flatMap((group) => {
       const root = group[0].item
-      const rootName = nameOf(root.text)
       const collapsed = collapsedIds.has(root.id)
       const childCount = group.length - 1
       const visible = group.filter(({ depth }) => !collapsed || depth === 0)
       // Keep every row under one keyed list so nesting/reordering preserves the
       // actual input element, its focus, and the cursor position while typing.
-      return visible.map(({ item, depth }, index) => {
+      return visible.map(({ item, depth }) => {
       const name = nameOf(item.text)
       const expanded = optionsId === item.id
-      return <Fragment key={item.id}><li className={`nc-item ${depth === 0 ? 'nc-root' : ''} ${item.completedAt ? 'is-complete' : ''} ${dragging?.id === item.id ? 'is-sliding' : ''}`} aria-label={`Checklist item: ${name}`} aria-level={depth + 1} style={{ '--check-depth': depth, '--check-slide': dragging?.id === item.id ? `${dragging.x}px` : '0px' } as CSSProperties}>
+      return <li key={item.id} className={`nc-item ${depth === 0 ? 'nc-root' : ''} ${item.completedAt ? 'is-complete' : ''} ${dragging?.id === item.id ? 'is-sliding' : ''}`} aria-label={`Checklist item: ${name}`} aria-level={depth + 1} style={{ '--check-depth': depth, '--check-slide': dragging?.id === item.id ? `${dragging.x}px` : '0px' } as CSSProperties}>
         <div className="nc-row">
           <button type="button" className="nc-grip" aria-label={`Move ${name}`} aria-describedby={descriptionId} title="Slide right or left to change nesting. Arrow keys also move this item." onKeyDown={(event) => gripKey(event, item.id)} onPointerDown={(event) => startDrag(event, item.id)} onPointerMove={updateDrag} onPointerUp={finishDrag} onPointerCancel={(event) => finishDrag(event, true)} onLostPointerCapture={(event) => finishDrag(event, true)}><GripVertical size={18} /></button>
           <label className="nc-check"><input type="checkbox" aria-label={name} checked={Boolean(item.completedAt)} onChange={() => attempt(() => forge.actions.toggleNoteChecklistItem(note.id, item.id))} /><span className="sr-only">{name}</span></label>
@@ -190,11 +184,9 @@ export function NoteChecklist({ forge, note, autoFocus = false, focusItemId }: {
           <button type="button" className="nc-delete" aria-label={`Delete ${name} and its sub-items`} onClick={() => attempt(() => { forge.actions.deleteNoteChecklistItem(note.id, item.id); setLastDeleted({ id: item.id, text: name }); setOptionsId(undefined); setNotice('Checklist item and its sub-items moved to trash.') })}><Trash2 size={15} />Delete</button>
         </div>}
       </li>
-      {index === visible.length - 1 && <li role="presentation" className="nc-group-end"><button type="button" className="nc-add-child" aria-label={`Add item to ${rootName}`} onClick={() => addToGroup(root.id)}><Plus size={16} /><span>Add item</span>{collapsed && <span className="nc-add-hint">opens list</span>}</button></li>}
-      </Fragment>
       })
     })}</ul>}
-    <button type="button" className="nc-add-main" data-note-checklist-add-start="" onClick={() => add({ text: '' })}><Plus size={17} /><span>{rows.length ? 'Add main item' : 'Add first main item'}</span></button>
+    <button type="button" className="nc-add-main" data-note-checklist-add-start="" onClick={() => add({ text: '' })}><Plus size={17} /><span>Add item</span></button>
     <span className="sr-only" role="status">{notice}</span>
     {lastDeleted && <div className="nc-undo"><span>“{lastDeleted.text}” deleted with its sub-items.</span><button type="button" onClick={() => restore(lastDeleted.id)}><Undo2 size={14} />Undo</button><button type="button" className="nc-icon" aria-label="Dismiss checklist delete notice" onClick={() => setLastDeleted(undefined)}><X size={14} /></button></div>}
     {error && <p className="nc-error" role="alert">{error}</p>}

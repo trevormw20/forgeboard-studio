@@ -132,7 +132,7 @@ describe('notes and live notifications through the real application', () => {
     expect(within(popups()).queryByRole('article')).toBeNull()
   })
 
-  it('opens a cross-project search result, edits it, and uses that notebook for the next checklist capture', async () => {
+  it('opens a cross-project search result, edits it, and uses that notebook for the next direct checklist', async () => {
     await mount()
     search('Shopping')
     fireEvent.click(screen.getByRole('button', { name: 'Open note: Combat supplies' }))
@@ -141,7 +141,8 @@ describe('notes and live notifications through the real application', () => {
     expect((screen.getByRole('searchbox', { name: 'Search all notes' }) as HTMLInputElement).value).toBe('')
     expect(screen.getByRole('region', { name: 'Note editor' })).toBeTruthy()
     fireEvent.change(screen.getByLabelText('Note title'), { target: { value: 'Combat supplies revised' } })
-    const capture = screen.getByRole('textbox', { name: 'Start a checklist note' }) as HTMLInputElement
+    fireEvent.click(screen.getByRole('button', { name: 'Close note' }))
+    const capture = screen.getByRole('textbox', { name: 'Edit New item' }) as HTMLInputElement
     capture.focus()
     fireEvent.change(capture, { target: { value: 'One more tactics list' } })
     expect(document.activeElement).toBe(capture)
@@ -154,17 +155,19 @@ describe('notes and live notifications through the real application', () => {
     expect(memory.cache?.personalNotes?.find((note) => note.id === 'snail-list')?.title).toBe('Shopping letters')
   })
 
-  it('captures checkbox-first, continues on Enter, and syncs the same untitled checklist through an app reload', async () => {
+  it('types in the default checkbox, continues on Enter without replacing it, and syncs the untitled checklist through an app reload', async () => {
     const first = await mount()
     fireEvent.click(mainNav().getByRole('button', { name: 'Personal notes' }))
     fireEvent.change(screen.getByLabelText('Project notebook'), { target: { value: 'snail' } })
-    const capture = screen.getByRole('textbox', { name: 'Start a checklist note' }) as HTMLInputElement
+    expect(screen.queryByRole('textbox', { name: 'Start a checklist note' })).toBeNull()
+    const capture = screen.getByRole('textbox', { name: 'Edit New item' }) as HTMLInputElement
     capture.focus()
     fireEvent.change(capture, { target: { value: 'M' } })
     await settle()
     const firstRowId = memory.cache?.personalNotes?.find((note) => !note.title)?.checklist?.[0].id
     expect(firstRowId).toBeTruthy()
     fireEvent.change(capture, { target: { value: 'Milk' } })
+    expect(screen.getByRole('textbox', { name: 'Edit Milk' })).toBe(capture)
     expect(document.activeElement).toBe(capture)
     expect(screen.queryByLabelText('Note title')).toBeNull()
     expect(screen.queryByLabelText('Note text')).toBeNull()
@@ -173,7 +176,8 @@ describe('notes and live notifications through the real application', () => {
     expect(captured).toMatchObject({ projectId: 'snail', title: '', body: '', checklist: [{ id: firstRowId, text: 'Milk' }] })
     expect(memory.cache?.personalNotes).toHaveLength(3)
     fireEvent.keyDown(capture, { key: 'Enter' })
-    expect(capture.value).toBe('')
+    expect(capture.value).toBe('Milk')
+    expect(screen.getByRole('textbox', { name: 'Edit Milk' })).toBe(capture)
     const next = screen.getByRole('textbox', { name: 'Edit New item' })
     expect(document.activeElement).toBe(next)
     fireEvent.change(next, { target: { value: 'Bread' } })
@@ -198,11 +202,11 @@ describe('notes and live notifications through the real application', () => {
     expect(memory.cache?.personalNotes?.find((note) => note.id === 'tactics-list')).toMatchObject({ title: 'Combat supplies', body: 'Shopping context kept from an older note.' })
   })
 
-  it.each(['note', 'checkbox'] as const)('keeps a failed capture when its %s is deleted remotely, blocks navigation, and recovers it only into the original project', async (deleted) => {
+  it.each(['note', 'checkbox'] as const)('keeps failed checkbox text when its %s is deleted remotely, blocks navigation, and recovers it only into the original project', async (deleted) => {
     await mount()
     fireEvent.click(mainNav().getByRole('button', { name: 'Personal notes' }))
     fireEvent.change(screen.getByLabelText('Project notebook'), { target: { value: 'snail' } })
-    const capture = screen.getByRole('textbox', { name: 'Start a checklist note' }) as HTMLInputElement
+    const capture = screen.getByRole('textbox', { name: 'Edit New item' }) as HTMLInputElement
     capture.focus()
     fireEvent.change(capture, { target: { value: 'Review build' } })
     fireEvent.click(screen.getByRole('button', { name: 'Sync now' }))
@@ -227,7 +231,8 @@ describe('notes and live notifications through the real application', () => {
 
     const fullDraft = 'Review build and verify the opening battle before release'
     fireEvent.change(capture, { target: { value: fullDraft } })
-    expect(screen.getByRole('alert').textContent).toContain('Your quick-entry draft is still here')
+    expect(screen.getByRole('button', { name: 'Save draft as new checklist' })).toBeTruthy()
+    expect(screen.getByRole('textbox', { name: `Edit ${fullDraft}` })).toBe(capture)
     fireEvent.blur(capture)
     expect(capture.value).toBe(fullDraft)
     const leaving = new Event('beforeunload', { cancelable: true })
@@ -266,7 +271,7 @@ describe('notes and live notifications through the real application', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Save draft as new checklist' }))
     await settle()
-    expect(capture.value).toBe('')
+    expect((screen.getByRole('textbox', { name: `Edit ${fullDraft}` }) as HTMLInputElement).value).toBe(fullDraft)
     const recovered = memory.cache?.personalNotes?.find((note) => note.id !== originalId && note.checklist?.[0]?.text === fullDraft)
     expect(recovered).toMatchObject({ title: '', body: '', projectId: 'snail', checklist: [{ text: fullDraft }] })
     expect(recovered?.checklist).toHaveLength(1)
@@ -281,6 +286,93 @@ describe('notes and live notifications through the real application', () => {
     fireEvent.click(mainNav().getByRole('button', { name: /^Today/ }))
     expect(screen.getByRole('heading', { name: 'Next up' })).toBeTruthy()
     expect(screen.queryByRole('region', { name: 'Personal notes' })).toBeNull()
+  })
+
+  it('keeps a failed row edit protected after a different row saves successfully and recovers both full texts', async () => {
+    await mount()
+    fireEvent.click(mainNav().getByRole('button', { name: 'Personal notes' }))
+    fireEvent.change(screen.getByLabelText('Project notebook'), { target: { value: 'snail' } })
+    const firstRow = screen.getByRole('textbox', { name: 'Edit New item' }) as HTMLInputElement
+    fireEvent.change(firstRow, { target: { value: 'Keep A' } })
+    fireEvent.keyDown(firstRow, { key: 'Enter' })
+    const secondRow = screen.getByRole('textbox', { name: 'Edit New item' }) as HTMLInputElement
+    fireEvent.change(secondRow, { target: { value: 'Failed B' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Sync now' }))
+    await settle()
+    const original = memory.remote!.personalNotes!.find((note) => note.checklist?.[0]?.text === 'Keep A')!
+    expect(original.checklist).toHaveLength(2)
+    await poll(1_000)
+    const incoming = structuredClone(memory.remote!)
+    const changedAt = new Date().toISOString()
+    const changed = incoming.personalNotes!.find((note) => note.id === original.id)!
+    changed.updatedAt = changedAt
+    Object.assign(changed.checklist![1], { deletedAt: changedAt, updatedAt: changedAt })
+    incoming.updatedAt = changedAt
+    memory.remote = incoming
+    fireEvent.click(screen.getByRole('button', { name: 'Sync now' }))
+    await settle()
+    fireEvent.change(secondRow, { target: { value: 'Failed B needs this entire review' } })
+    expect(screen.getByRole('button', { name: 'Save draft as new checklist' })).toBeTruthy()
+    fireEvent.change(firstRow, { target: { value: 'Keep A with its successful update' } })
+    expect(screen.getByRole('textbox', { name: 'Edit Failed B needs this entire review' })).toBe(secondRow)
+    expect(secondRow.value).toBe('Failed B needs this entire review')
+    expect(firstRow.value).toBe('Keep A with its successful update')
+    expect(screen.getByRole('button', { name: 'Save draft as new checklist' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Discard unsaved draft' })).toBeTruthy()
+    const leaving = new Event('beforeunload', { cancelable: true })
+    fireEvent(window, leaving)
+    expect(leaving.defaultPrevented).toBe(true)
+    fireEvent.click(mainNav().getByRole('button', { name: /^Today/ }))
+    expect(screen.getByRole('region', { name: 'Personal notes' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Save draft as new checklist' }))
+    await settle()
+    const recovered = memory.cache!.personalNotes!.find((note) => note.id !== original.id && note.checklist?.some((item) => item.text === 'Failed B needs this entire review'))!
+    expect(recovered.projectId).toBe('snail')
+    expect(recovered.checklist?.map((item) => item.text)).toEqual(['Keep A with its successful update', 'Failed B needs this entire review'])
+    const savedOriginal = memory.cache!.personalNotes!.find((note) => note.id === original.id)!
+    expect(savedOriginal.checklist?.[0].text).toBe('Keep A with its successful update')
+    expect(savedOriginal.checklist?.[1].deletedAt).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Sync now' }))
+    await settle()
+    expect(memory.remote!.personalNotes!.find((note) => note.id === recovered.id)?.checklist?.map((item) => item.text)).toEqual(['Keep A with its successful update', 'Failed B needs this entire review'])
+    fireEvent.click(mainNav().getByRole('button', { name: /^Today/ }))
+    expect(screen.getByRole('heading', { name: 'Next up' })).toBeTruthy()
+  })
+
+  it('does not apply an open editor draft to a note moved remotely into another project and recovers it in the original project', async () => {
+    await mount()
+    fireEvent.click(mainNav().getByRole('button', { name: 'Personal notes' }))
+    fireEvent.change(screen.getByLabelText('Project notebook'), { target: { value: 'snail' } })
+    const row = screen.getByRole('textbox', { name: 'Edit New item' }) as HTMLInputElement
+    fireEvent.change(row, { target: { value: 'Original project review' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Sync now' }))
+    await settle()
+    const original = memory.remote!.personalNotes!.find((note) => note.checklist?.[0]?.text === 'Original project review')!
+    await poll(1_000)
+    const incoming = structuredClone(memory.remote!)
+    const moved = incoming.personalNotes!.find((note) => note.id === original.id)!
+    moved.projectId = 'tactics'
+    moved.updatedAt = new Date().toISOString()
+    incoming.updatedAt = moved.updatedAt
+    memory.remote = incoming
+    fireEvent.click(screen.getByRole('button', { name: 'Sync now' }))
+    await settle()
+    expect(memory.cache!.personalNotes!.find((note) => note.id === original.id)?.projectId).toBe('tactics')
+    const fullDraft = 'Original project review plus my unfinished instructions'
+    fireEvent.change(row, { target: { value: fullDraft } })
+    expect(screen.getByRole('textbox', { name: `Edit ${fullDraft}` })).toBe(row)
+    expect(screen.getByRole('button', { name: 'Save draft as new checklist' })).toBeTruthy()
+    expect(memory.cache!.personalNotes!.find((note) => note.id === original.id)).toMatchObject({ projectId: 'tactics', checklist: [{ text: 'Original project review' }] })
+    fireEvent.click(mainNav().getByRole('button', { name: /^Today/ }))
+    expect(screen.getByRole('region', { name: 'Personal notes' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Save draft as new checklist' }))
+    await settle()
+    const recovered = memory.cache!.personalNotes!.find((note) => note.id !== original.id && note.checklist?.[0]?.text === fullDraft)!
+    expect(recovered).toMatchObject({ projectId: 'snail', title: '', body: '', checklist: [{ text: fullDraft }] })
+    fireEvent.click(screen.getByRole('button', { name: 'Sync now' }))
+    await settle()
+    expect(memory.remote!.personalNotes!.find((note) => note.id === original.id)).toMatchObject({ projectId: 'tactics', checklist: [{ text: 'Original project review' }] })
+    expect(memory.remote!.personalNotes!.find((note) => note.id === recovered.id)).toMatchObject({ projectId: 'snail', checklist: [{ text: fullDraft }] })
   })
 
   it('does not popup historical reports and durably clears the unread light when the feed is checked', async () => {

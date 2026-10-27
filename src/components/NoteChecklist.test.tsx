@@ -30,7 +30,7 @@ async function start(items: NoteChecklistItem[] = [], failAdd = false, focus: Fo
   cached = createSeedWorkspace()
   cached.personalNotes = [{ id: 'note', title: 'Daily notes', body: 'Keep the original writing.', checklist: items, createdAt: '2026-10-21T12:00:00Z', updatedAt: '2026-10-21T12:00:00Z' }]
   const view = render(<Harness failAdd={failAdd} {...focus} />)
-  await screen.findByRole('button', { name: /Add (first )?main item/ })
+  await screen.findByRole('button', { name: 'Add item' })
   return view
 }
 
@@ -40,7 +40,7 @@ function checklistItem(id: string, text: string, parentId?: string, order = 0): 
 
 function saved(): NoteChecklistItem[] { return JSON.parse(screen.getByLabelText('Saved checklist').textContent ?? '[]') }
 function addText(text: string) {
-  fireEvent.click(screen.getByRole('button', { name: /Add (first )?main item/ }))
+  fireEvent.click(screen.getByRole('button', { name: 'Add item' }))
   const input = screen.getByRole('textbox', { name: 'Edit New item' })
   expect(document.activeElement).toBe(input)
   fireEvent.change(input, { target: { value: text } })
@@ -84,7 +84,7 @@ describe('Note checklist', () => {
     capture.focus()
     view.rerender(<Harness autoFocus focusItemId="not-yet-present" />)
     expect(document.activeElement).toBe(capture)
-    fireEvent.click(screen.getByRole('button', { name: 'Add first main item' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add item' }))
     const first = screen.getByRole('textbox', { name: 'Edit New item' })
     expect(document.activeElement).toBe(first)
     capture.focus()
@@ -242,63 +242,73 @@ describe('Note checklist', () => {
 
   it('reports a failed one-click add before accepting text, without creating a ghost item', async () => {
     await start([], true)
-    fireEvent.click(screen.getByRole('button', { name: 'Add first main item' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add item' }))
     expect(screen.queryByRole('textbox', { name: 'Edit New item' })).toBeNull()
     expect(screen.getByRole('alert').textContent).toBe('Could not add this item.')
     expect(saved()).toEqual([])
   })
 
-  it('puts one Add item control after each entire root group and adds a direct child, not a deeper descendant', async () => {
+  it('puts exactly one Add item control after the whole checklist and appends a root after the final deep descendant', async () => {
     await start()
     addText('Walmart')
-    fireEvent.click(screen.getByRole('button', { name: 'Add item to Walmart' }))
+    options('Walmart')
+    fireEvent.click(screen.getByRole('button', { name: 'Add sub-item to Walmart' }))
     fireEvent.change(screen.getByRole('textbox', { name: 'Edit New item' }), { target: { value: 'Fish' } })
     options('Fish')
     fireEvent.click(screen.getByRole('button', { name: 'Add sub-item to Fish' }))
     fireEvent.change(screen.getByRole('textbox', { name: 'Edit New item' }), { target: { value: 'Salmon' } })
     addText('Costco')
-    fireEvent.click(screen.getByRole('button', { name: 'Add item to Costco' }))
+    options('Costco')
+    fireEvent.click(screen.getByRole('button', { name: 'Add sub-item to Costco' }))
     const turkeyInput = screen.getByRole('textbox', { name: 'Edit New item' })
     expect(document.activeElement).toBe(turkeyInput)
     fireEvent.change(turkeyInput, { target: { value: 'Turkey' } })
 
     expect(screen.getAllByRole('listitem').map((item) => item.getAttribute('aria-label'))).toEqual(['Checklist item: Walmart', 'Checklist item: Fish', 'Checklist item: Salmon', 'Checklist item: Costco', 'Checklist item: Turkey'])
-    const walmartAdd = screen.getByRole('button', { name: 'Add item to Walmart' }).closest('li')!
-    const costcoAdd = screen.getByRole('button', { name: 'Add item to Costco' }).closest('li')!
-    expect(walmartAdd.previousElementSibling).toBe(screen.getByRole('listitem', { name: 'Checklist item: Salmon' }))
-    expect(walmartAdd.nextElementSibling).toBe(screen.getByRole('listitem', { name: 'Checklist item: Costco' }))
-    expect(costcoAdd.previousElementSibling).toBe(screen.getByRole('listitem', { name: 'Checklist item: Turkey' }))
+    expect(screen.getAllByRole('button', { name: 'Add item' })).toHaveLength(1)
+    const list = screen.getByRole('list', { name: 'Checklist items' })
+    expect(list.lastElementChild).toBe(screen.getByRole('listitem', { name: 'Checklist item: Turkey' }))
+    expect(list.nextElementSibling).toBe(screen.getByRole('button', { name: 'Add item' }))
+    expect(screen.queryByRole('button', { name: /Add item to/ })).toBeNull()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Add item to Walmart' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add item' }))
     const newInput = screen.getByRole('textbox', { name: 'Edit New item' })
     expect(document.activeElement).toBe(newInput)
     fireEvent.change(newInput, { target: { value: 'Milk' } })
-    const walmart = saved().find((item) => item.text === 'Walmart')!
     const costco = saved().find((item) => item.text === 'Costco')!
-    expect(saved().find((item) => item.text === 'Milk')?.parentId).toBe(walmart.id)
+    expect(saved().find((item) => item.text === 'Milk')?.parentId).toBeUndefined()
     expect(saved().find((item) => item.text === 'Turkey')?.parentId).toBe(costco.id)
-    expect(screen.getByRole('button', { name: 'Add item to Walmart' }).closest('li')?.previousElementSibling).toBe(screen.getByRole('listitem', { name: 'Checklist item: Milk' }))
-    expect(screen.getByRole('listitem', { name: 'Checklist item: Milk' }).getAttribute('aria-level')).toBe('2')
+    expect(list.lastElementChild).toBe(screen.getByRole('listitem', { name: 'Checklist item: Milk' }))
+    expect(screen.getByRole('listitem', { name: 'Checklist item: Milk' }).previousElementSibling).toBe(screen.getByRole('listitem', { name: 'Checklist item: Turkey' }))
+    expect(screen.getByRole('listitem', { name: 'Checklist item: Milk' }).getAttribute('aria-level')).toBe('1')
   })
 
-  it('shows Add item even without children and keeps the separate main-item action at the bottom', async () => {
+  it('shows a single Add item when empty and appends outside the last collapsed group', async () => {
     await start()
+    expect(screen.getAllByRole('button', { name: 'Add item' })).toHaveLength(1)
     addText('Walmart')
-    const add = screen.getByRole('button', { name: 'Add item to Walmart' })
-    expect(add.closest('li')?.previousElementSibling).toBe(screen.getByRole('listitem', { name: 'Checklist item: Walmart' }))
-    fireEvent.click(add)
+    options('Walmart')
+    fireEvent.click(screen.getByRole('button', { name: 'Add sub-item to Walmart' }))
     expect(screen.getByRole('listitem', { name: 'Checklist item: New item' }).getAttribute('aria-level')).toBe('2')
     expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'Edit New item' }))
     fireEvent.change(document.activeElement!, { target: { value: 'Fish' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse Walmart list' }))
+    expect(screen.queryByRole('textbox', { name: 'Edit Fish' })).toBeNull()
     addText('Costco')
     expect(saved().find((item) => item.text === 'Costco')?.parentId).toBeUndefined()
-    expect(screen.getByRole('list', { name: 'Checklist items' }).nextElementSibling).toBe(screen.getByRole('button', { name: 'Add main item' }))
+    expect(screen.getByRole('listitem', { name: 'Checklist item: Costco' }).getAttribute('aria-level')).toBe('1')
+    expect(screen.getByRole('button', { name: 'Expand Walmart list' }).getAttribute('aria-expanded')).toBe('false')
+    expect(screen.getByRole('list', { name: 'Checklist items' }).nextElementSibling).toBe(screen.getByRole('button', { name: 'Add item' }))
+    expect(screen.getAllByRole('button', { name: 'Add item' })).toHaveLength(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Expand Walmart list' }))
+    expect(screen.getAllByRole('listitem').map((item) => item.getAttribute('aria-label'))).toEqual(['Checklist item: Walmart', 'Checklist item: Fish', 'Checklist item: Costco'])
   })
 
   it('reopens collapsed and completed groups for editing and expands when adding a child', async () => {
     await start()
     addText('Walmart')
-    fireEvent.click(screen.getByRole('button', { name: 'Add item to Walmart' }))
+    options('Walmart')
+    fireEvent.click(screen.getByRole('button', { name: 'Add sub-item to Walmart' }))
     fireEvent.change(screen.getByRole('textbox', { name: 'Edit New item' }), { target: { value: 'Fish' } })
     fireEvent.click(screen.getByRole('checkbox', { name: 'Walmart' }))
     expect((screen.getByRole('checkbox', { name: 'Fish' }) as HTMLInputElement).checked).toBe(false)
@@ -309,7 +319,8 @@ describe('Note checklist', () => {
     fireEvent.change(screen.getByRole('textbox', { name: 'Edit Fish' }), { target: { value: 'Salmon' } })
     expect(saved().find((item) => item.text === 'Salmon')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Collapse Walmart list' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Add item to Walmart' }))
+    options('Walmart')
+    fireEvent.click(screen.getByRole('button', { name: 'Add sub-item to Walmart' }))
     expect(screen.getByRole('textbox', { name: 'Edit Salmon' })).toBeTruthy()
     const input = screen.getByRole('textbox', { name: 'Edit New item' })
     expect(document.activeElement).toBe(input)
