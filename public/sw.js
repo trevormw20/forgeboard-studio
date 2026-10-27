@@ -1,4 +1,4 @@
-const CACHE = 'forgeboard-shell-v9'
+const CACHE = 'forgeboard-shell-v10'
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon.svg', './icon-192.png', './icon-512.png', './favicon.svg']
 
 self.addEventListener('install', (event) => {
@@ -13,6 +13,8 @@ self.addEventListener('fetch', (event) => {
   const request = event.request
   const url = new URL(request.url)
   if (request.method !== 'GET' || url.hostname === 'api.github.com') return
+  // Installer pages/binaries must never replace the offline app shell or enter its cache.
+  if (url.origin === self.location.origin && url.pathname.startsWith(new URL('./downloads/', self.location.href).pathname)) return
   if (request.mode === 'navigate') {
     event.respondWith(fetch(request).then((response) => {
       const copy = response.clone()

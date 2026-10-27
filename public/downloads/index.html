@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#101521">
+  <meta name="robots" content="noindex">
+  <title>Install Forgeboard Notes</title>
+  <style>
+    :root{color-scheme:dark;font-family:system-ui,sans-serif;background:#101521;color:#eef3fa;line-height:1.6}
+    *{box-sizing:border-box}body{margin:0;padding:32px 18px}main{max-width:700px;margin:auto}
+    a{color:#a7cdfb}h1{font-size:clamp(1.8rem,6vw,2.5rem);line-height:1.2;margin:20px 0 12px}
+    p{color:#b7c4d6;margin:10px 0 20px}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:18px;margin:28px 0}
+    article{background:#1b2535;padding:24px;border:1px solid #38475d;border-radius:20px}h2{margin:0;font-size:1.35rem}
+    .download{display:block;background:#a4dcd1;color:#101521;font-weight:700;text-decoration:none;text-align:center;border-radius:12px;padding:14px 12px;min-height:52px}
+    .niki{background:#c9bafb}a:focus-visible,summary:focus-visible{outline:3px solid #fff;outline-offset:5px}.size{font-size:.88rem;margin:12px 0 0}
+    aside{border-left:3px solid #a4dcd1;padding:0 0 0 18px;margin:28px 0}aside p{color:#eef3fa}summary{cursor:pointer;min-height:44px}
+    details{color:#b7c4d6}code{overflow-wrap:anywhere;font-size:.8rem}footer{margin:32px 0;font-size:.9rem}
+  </style>
+</head>
+<body>
+  <main>
+    <a href="../">← Forgeboard</a>
+    <h1>Your notes, on Android.</h1>
+    <p>Direct installer files. No release page, sign-in, or API key is needed to download.</p>
+    <section class="cards" aria-label="Choose your Android app">
+      <article>
+        <h2>Your Forgeboard Notes</h2>
+        <p>Update your existing notes app. Your private planner stays yours.</p>
+        <a class="download" href="./0.2.0/Forgeboard-Notes.apk" download="Forgeboard-Notes.apk">Download your app</a>
+        <p class="size">Version 0.2.0 · 94,500 bytes · Android 8+</p>
+      </article>
+      <article>
+        <h2>Niki Notes</h2>
+        <p>Niki’s separate notes profile, with access to your shared lists.</p>
+        <a class="download niki" href="./0.2.0/Niki-Notes.apk" download="Niki-Notes.apk">Download Niki’s app</a>
+        <p class="size">Version 0.2.0 · 94,460 bytes · Android 8+</p>
+      </article>
+    </section>
+    <aside>
+      <p><strong>Updating? Install over the existing app. Don’t uninstall or clear its data.</strong></p>
+      <p>Open the finished APK from your phone’s Downloads folder to install. Keep Play Protect enabled. These are the same signed installers, not new accounts or new data stores.</p>
+    </aside>
+    <h2>If the phone download still stalls</h2>
+    <p>Download on your computer, copy the APK to your phone’s Downloads folder using USB file transfer, then open it from your phone’s Files app. Don’t disable browser or Android security protections to force a download.</p>
+    <details>
+      <summary>Verify the files (SHA-256)</summary>
+      <p>Your app:<br><code>a8f665fa4c7bb7f9630ae5646d889f2b826ea1f8e54d7a7283cc3e53d9917c6e</code></p>
+      <p>Niki’s app:<br><code>980263d49ce0588ffce2a06a65964ee26ba512c80f5c13bd8350433e9a3ba971</code></p>
+      <a href="./0.2.0/SHA256SUMS.txt" download>Download checksums</a>
+    </details>
+    <footer>Notes stay in your connected private GitHub repositories. Never enter an access token or Claude key on this download page.</footer>
+  </main>
+</body>
+</html>

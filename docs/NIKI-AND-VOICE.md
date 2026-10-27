@@ -2,6 +2,8 @@
 
 The Pages app and private planner vault still work as before. Update the existing Android app by installing **Forgeboard-Notes.apk over it**; do not uninstall (unsynced offline notes would be lost). **Niki-Notes.apk** installs separately with its own application ID and encrypted cache.
 
+Use the [direct installer page](https://trevormw20.github.io/forgeboard-studio/downloads/) instead of GitHub release downloads. The same signed files are available directly, with no release page or login. If a phone browser still stalls, copy the APK from your computer by USB and open it from the phone’s Files app. Keep Android security protections enabled.
+
 ## Three spaces under the same GitHub account
 
 | Space | Private repository | Who should have its token |

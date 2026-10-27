@@ -8,7 +8,7 @@
     "build": "npm run build:inbox && tsc -b && vite build",
     "build:inbox": "node scripts/build-inbox.mjs",
     "lint": "oxlint",
-    "test": "vitest run && node --test scripts/handoff-checks.mjs scripts/relay-checks.mjs scripts/desktop-checks.mjs scripts/voice-checks.mjs",
+    "test": "vitest run && node --test scripts/handoff-checks.mjs scripts/relay-checks.mjs scripts/desktop-checks.mjs scripts/voice-checks.mjs scripts/download-checks.mjs",
     "test:watch": "vitest",
     "preview": "vite preview"
   },

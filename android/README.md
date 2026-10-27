@@ -4,7 +4,7 @@ A native, notes-only companion to the existing Forgeboard website. Android 8.0 o
 
 ## Install and connect
 
-1. On your Android phone, open the [Android release downloads](https://github.com/trevormw20/forgeboard-studio/releases/tag/android-notes-v0.2.0) and download **Forgeboard-Notes.apk** for you, or **Niki-Notes.apk** for Niki. Open the download and allow installation from that source if Android asks. No Play Store account is required. Do not disable Play Protect. Update your existing app **without uninstalling**.
+1. On your Android phone, open the [direct Android installers](https://trevormw20.github.io/forgeboard-studio/downloads/) and choose your app or Niki’s app. These direct files do not use the GitHub release-download redirect. If a phone download stalls, copy the APK from your computer to the phone’s Downloads folder using USB, then open it in Files. Open the finished download and allow installation from that source if Android asks. No Play Store account is required. Do not disable Play Protect. Update your existing app **without uninstalling**.
 2. Open **Forgeboard Notes** → **Connect GitHub**. The defaults are owner `trevormw20`, private repository `forgeboard-studio-vault`, branch `main`, file `data/workspace.json`.
 3. Enter your fine-grained GitHub token **on the phone only**. It needs access to only the private vault and **Contents → Read and write**. The browser's saved token is not shared with this app. Token expiry still applies.
 4. Connect, select a project notebook, and open or create a note. The project selector comes from your existing vault, not a second list you need to maintain. **General** is for notes with no project.
