@@ -24,6 +24,7 @@ import { createPersonalNote, editPersonalNote, removePersonalNote, restorePerson
 import type { PersonalNoteInput, PersonalNoteUpdate, NoteLabelInput } from '../lib/personalNotes'
 import { addChecklistItem, editChecklistItem, toggleChecklistItem, moveChecklistItem, removeChecklistItem, restoreChecklistItem } from '../lib/noteChecklist'
 import type { ChecklistDirection, ChecklistItemInput } from '../lib/noteChecklist'
+import { hasNoteHistoryChanges, NOTE_HISTORY_LIMIT, NOTE_TYPING_GROUP_MS, replayNoteHistory, snapshotNote } from '../lib/noteHistory'
 import { createProject, createSeedWorkspace, createTask } from '../seed'
 import type {
   BoardKey,
@@ -40,7 +41,23 @@ import type {
   AgentProgress,
   AgentChat,
   ProjectExperiment,
+  PersonalNote,
 } from '../types'
+
+interface NoteHistoryEntry { before: PersonalNote; after: PersonalNote; at: number; group?: string }
+interface NoteHistoryStack { undo: NoteHistoryEntry[]; redo: NoteHistoryEntry[] }
+
+function noteTypingGroup(before: PersonalNote, after: PersonalNote, type: string): string | undefined {
+  if (type === 'personal-note.checklist.update') {
+    const earlier = new Map((before.checklist ?? []).map((item) => [item.id, item.text]))
+    const changed = (after.checklist ?? []).filter((item) => earlier.get(item.id) !== item.text)
+    return changed.length === 1 ? `checklist:${changed[0].id}:text` : undefined
+  }
+  if (type === 'personal-note.update') {
+    const changed = (['title', 'body'] as const).filter((field) => before[field] !== after[field])
+    return changed.length === 1 ? changed[0] : undefined
+  }
+}
 
 const defaultConnection: ConnectionConfig = {
   owner: 'trevormw20',
@@ -80,6 +97,13 @@ export function useForgeboard() {
   const syncingRef = useRef(false)
   const revisionRef = useRef(0)
   const syncBackoffRef = useRef(0)
+  // History is session-only and per-note. Only replayed edits enter the normal
+  // durable outbox; historical snapshots never enter GitHub or AI context.
+  const noteHistoryRef = useRef(new Map<string, NoteHistoryStack>())
+  const [noteHistory, setNoteHistory] = useState<Record<string, { canUndo: boolean; canRedo: boolean }>>({})
+  const publishNoteHistory = useCallback(() => {
+    setNoteHistory(Object.fromEntries([...noteHistoryRef.current].map(([id, stack]) => [id, { canUndo: stack.undo.length > 0, canRedo: stack.redo.length > 0 }])))
+  }, [])
   const [autosave] = useState(() => createWorkspaceAutosave({
     persist: async (snapshot, mutations) => {
       await saveWorkspaceChanges(snapshot, mutations)
@@ -111,10 +135,38 @@ export function useForgeboard() {
     return () => { active = false }
   }, [])
 
-  const commit = useCallback((type: string, entityId: string | undefined, change: (draft: Workspace, now: string) => void, debounce = false) => {
+  const commit = useCallback((type: string, entityId: string | undefined, change: (draft: Workspace, now: string) => void, debounce = false, trackHistory = true) => {
     const now = isoNow()
-    const next = structuredClone(workspaceRef.current)
+    const previous = workspaceRef.current
+    const next = structuredClone(previous)
     change(next, now)
+    if (trackHistory && entityId && type.startsWith('personal-note.')) {
+      const before = previous.personalNotes?.find((note) => note.id === entityId)
+      const after = next.personalNotes?.find((note) => note.id === entityId)
+      if (before && after && !before.deletedAt && !after.deletedAt && before.projectId === after.projectId && before.parentId === after.parentId && hasNoteHistoryChanges(before, after)) {
+        const stack = noteHistoryRef.current.get(entityId) ?? { undo: [], redo: [] }
+        const group = debounce ? noteTypingGroup(before, after, type) : undefined
+        const last = stack.undo.at(-1)
+        if (group && last?.group === group && !stack.redo.length && Date.now() - last.at <= NOTE_TYPING_GROUP_MS && last.after.projectId === before.projectId && last.after.parentId === before.parentId && last.after.createdAt === before.createdAt && !hasNoteHistoryChanges(last.after, before)) {
+          last.after = snapshotNote(after)
+          last.at = Date.now()
+        } else {
+          stack.undo.push({ before: snapshotNote(before), after: snapshotNote(after), at: Date.now(), group })
+          if (stack.undo.length > NOTE_HISTORY_LIMIT) stack.undo.shift()
+        }
+        stack.redo = []
+        noteHistoryRef.current.set(entityId, stack)
+        publishNoteHistory()
+      } else if (before && after && (before.deletedAt !== after.deletedAt || before.projectId !== after.projectId || before.parentId !== after.parentId)) {
+        // Deleting/moving a note is handled by its existing explicit Restore,
+        // not by replaying content history against a different notebook.
+        for (const note of next.personalNotes ?? []) {
+          const old = previous.personalNotes?.find((item) => item.id === note.id)
+          if (old && (old.deletedAt !== note.deletedAt || old.projectId !== note.projectId || old.parentId !== note.parentId)) noteHistoryRef.current.delete(note.id)
+        }
+        publishNoteHistory()
+      }
+    }
     revisionRef.current += 1
     next.updatedAt = now
     workspaceRef.current = next
@@ -122,7 +174,33 @@ export function useForgeboard() {
     const mutation = { id: createId('mutation'), at: now, type, entityId }
     autosave.queue(next, mutation, debounce)
     setSyncMeta((meta) => ({ ...meta, dirty: true }))
-  }, [autosave])
+  }, [autosave, publishNoteHistory])
+
+  const navigateNoteHistory = useCallback((id: string, direction: 'undo' | 'redo'): PersonalNote | undefined => {
+    const stack = noteHistoryRef.current.get(id)
+    const entry = stack?.[direction].at(-1)
+    if (!stack || !entry) return undefined
+    let restored: PersonalNote | undefined
+    let beforeReplay: PersonalNote | undefined
+    commit(`personal-note.${direction}`, id, (draft, now) => {
+      const current = draft.personalNotes?.find((note) => note.id === id)
+      beforeReplay = current ? snapshotNote(current) : undefined
+      restored = replayNoteHistory(current, direction === 'undo' ? entry.after : entry.before, direction === 'undo' ? entry.before : entry.after, now)
+      const index = draft.personalNotes!.findIndex((note) => note.id === id)
+      draft.personalNotes![index] = restored
+    }, false, false)
+    // Advance only after a completely successful replay. A remote conflict
+    // leaves both the workspace and history available for explicit review.
+    stack[direction].pop()
+    const inverse: NoteHistoryEntry = direction === 'undo'
+      ? { before: snapshotNote(restored!), after: beforeReplay!, at: Date.now() }
+      : { before: beforeReplay!, after: snapshotNote(restored!), at: Date.now() }
+    stack[direction === 'undo' ? 'redo' : 'undo'].push(inverse)
+    publishNoteHistory()
+    return restored
+  }, [commit, publishNoteHistory])
+  const undoPersonalNote = useCallback((id: string) => navigateNoteHistory(id, 'undo'), [navigateNoteHistory])
+  const redoPersonalNote = useCallback((id: string) => navigateNoteHistory(id, 'redo'), [navigateNoteHistory])
 
   const syncNow = useCallback(async (override?: ConnectionConfig): Promise<boolean> => {
     if (syncingRef.current) return false
@@ -619,6 +697,7 @@ export function useForgeboard() {
     inboxStatus,
     syncMeta,
     localSave,
+    noteHistory,
     configured: isConfigured(connection),
     actions: {
       syncNow,
@@ -651,6 +730,8 @@ export function useForgeboard() {
       quickCapture,
       addPersonalNote,
       updatePersonalNote,
+      undoPersonalNote,
+      redoPersonalNote,
       deletePersonalNote,
       restorePersonalNote,
       saveNoteLabel,

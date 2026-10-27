@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
-import { ArrowLeft, Check, ChevronRight, FolderPlus, Layers3, NotebookPen, Palette, Pin, Plus, Search, Tag, Trash2, Type, Undo2, X } from 'lucide-react'
+import { ArrowLeft, Check, ChevronRight, FolderPlus, Layers3, NotebookPen, Palette, Pin, Plus, Redo2, Search, Tag, Trash2, Type, Undo2, X } from 'lucide-react'
 import type { useForgeboard } from '../hooks/useForgeboard'
 import type { NoteChecklistItem, PersonalNote } from '../types'
 import { deletedPersonalNoteRoots } from '../lib/personalNotes'
@@ -145,6 +145,8 @@ export function PersonalNotes({ forge, onAddProject, initialProjectId, onProject
   // Keep the open snapshot until they leave, or explicitly recover a failed edit.
   const removedWhileOpen = Boolean(selectedId && (!selected || session.note.checklist?.some((item) => !item.deletedAt && !selected.checklist?.some((current) => current.id === item.id && !current.deletedAt))))
   const editing = captureBlocked || removedWhileOpen ? session.note : selected ?? session.note
+  const history = forge.noteHistory[editing.id]
+  const historyBlocked = !selected || captureBlocked || removedWhileOpen
   useEffect(() => {
     // Retain the last external GitHub/cache snapshot if a later sync deletes it.
     // oxlint-disable-next-line react/set-state-in-effect
@@ -239,13 +241,13 @@ export function PersonalNotes({ forge, onAddProject, initialProjectId, onProject
     setError('')
   }
 
-  function activateEditor(note = editing): string {
+  function activateEditor(note = editing, baseline = note): string {
     if (persistedId.current) {
       const current = allNotes.find((item) => item.id === persistedId.current)
       if (current && !sameScope(current.projectId, session.note.projectId)) throw new Error('This checklist moved to another notebook. Save your draft as a new checklist in the original notebook.')
       return persistedId.current
     }
-    const { projectId, parentId, title, body, checklist, color, labelIds, pinned } = note
+    const { projectId, parentId, title, body, checklist, color, labelIds, pinned } = baseline
     const id = forge.actions.addPersonalNote({ projectId, parentId, title, body, checklist, color, labelIds, pinned })
     // Resolve rapidly repeated events before React renders the saved snapshot.
     persistedId.current = id
@@ -259,10 +261,11 @@ export function PersonalNotes({ forge, onAddProject, initialProjectId, onProject
     setSession((current) => ({ ...current, note: snapshot }))
     // Whitespace is visible in the draft but does not create an empty saved note.
     if (!persistedId.current && !text.trim()) return
-    const creating = !persistedId.current
     const okay = attempt(() => {
-      const id = activateEditor(snapshot)
-      if (!creating) forge.actions.updateNoteChecklistItem(id, itemId, { text })
+      // Create the empty baseline and record the first text edit together, so
+      // the first typing burst can be undone without deleting the note itself.
+      const id = activateEditor(snapshot, editing)
+      forge.actions.updateNoteChecklistItem(id, itemId, { text })
     })
     // Another row may still contain a failed edit. Only explicit recovery or
     // discard clears that protection, not a successful edit elsewhere.
@@ -308,6 +311,16 @@ export function PersonalNotes({ forge, onAddProject, initialProjectId, onProject
     }
     const at = isoNow()
     setSession((current) => ({ ...current, note: { ...current.note, checklist: current.note.checklist?.map((item) => removed.has(item.id) ? { ...item, deletedAt: at } : item) } }))
+  }
+
+  function navigateHistory(direction: 'undo' | 'redo') {
+    if (captureFailed.current || historyBlocked || !selected) return
+    attempt(() => {
+      const note = direction === 'undo' ? forge.actions.undoPersonalNote(selected.id) : forge.actions.redoPersonalNote(selected.id)
+      // Undo can intentionally remove newly added rows. Keep the editor's
+      // recovery snapshot aligned so that is not mistaken for a remote deletion.
+      if (note) setSession((current) => ({ ...current, note }))
+    })
   }
 
   // Use the existing checklist for both a new unsaved row and saved notes. Its
@@ -387,7 +400,7 @@ export function PersonalNotes({ forge, onAddProject, initialProjectId, onProject
     {!searching && <>
       <nav className="pn-breadcrumbs" aria-label="Note location"><button onClick={() => openNote()}>{scopeName}</button>{breadcrumbs.map((note, index) => <span key={note.id}><ChevronRight size={13} />{index === breadcrumbs.length - 1 ? <span aria-current="page">{noteTitle(note)}</span> : <button onClick={() => openNote(note.id)}>{noteTitle(note)}</button>}</span>)}</nav>
       <section className="pn-editor" aria-label="Note editor" style={noteStyle(editing.color)} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) flushNote() }}>
-        <div className="pn-editor-top"><button className="pn-text-button" onClick={() => openNote(parentOf(editing, notes)?.id)}><ArrowLeft size={16} />{parentOf(editing, notes) ? 'Back to parent' : 'All notes'}</button><div>{!editing.title && !titleOpen && <button className="pn-icon" aria-label="Add title" title="Add optional title" onClick={() => setTitleOpen(true)}><Type size={16} /></button>}<button className={`pn-icon ${editing.pinned ? 'is-pinned' : ''}`} aria-label={editing.pinned ? 'Unpin current note' : 'Pin current note'} aria-pressed={Boolean(editing.pinned)} onClick={() => updateNote({ pinned: !editing.pinned })}><Pin size={16} /></button><button className="pn-icon" aria-label="Delete current note and sub-notes" onClick={() => selected ? removeNote(selected) : openNote()}><Trash2 size={16} /></button><button className="pn-small-button" aria-label="Close note" onClick={() => openNote(parentOf(editing, notes)?.id)}><X size={15} />Close</button></div></div>
+        <div className="pn-editor-top"><button className="pn-text-button" onClick={() => openNote(parentOf(editing, notes)?.id)}><ArrowLeft size={16} />{parentOf(editing, notes) ? 'Back to parent' : 'All notes'}</button><div className="pn-editor-actions"><button className="pn-icon" aria-label="Undo note edit" title="Undo note edit" disabled={historyBlocked || !history?.canUndo} onClick={() => navigateHistory('undo')}><Undo2 size={16} /></button><button className="pn-icon" aria-label="Redo note edit" title="Redo note edit" disabled={historyBlocked || !history?.canRedo} onClick={() => navigateHistory('redo')}><Redo2 size={16} /></button>{!editing.title && !titleOpen && <button className="pn-icon" aria-label="Add title" title="Add optional title" onClick={() => setTitleOpen(true)}><Type size={16} /></button>}<button className={`pn-icon ${editing.pinned ? 'is-pinned' : ''}`} aria-label={editing.pinned ? 'Unpin current note' : 'Pin current note'} aria-pressed={Boolean(editing.pinned)} onClick={() => updateNote({ pinned: !editing.pinned })}><Pin size={16} /></button><button className="pn-icon" aria-label="Delete current note and sub-notes" onClick={() => selected ? removeNote(selected) : openNote()}><Trash2 size={16} /></button><button className="pn-small-button" aria-label="Close note" onClick={() => openNote(parentOf(editing, notes)?.id)}><X size={15} />Close</button></div></div>
         {(editing.title || titleOpen) && <label className="pn-title-label"><span className="sr-only">Note title</span><input autoFocus key={session.key} aria-label="Note title" placeholder="Optional title" value={editing.title} maxLength={300} onChange={(event) => { setTitleOpen(true); updateNote({ title: event.target.value }) }} /></label>}
         <NoteChecklist key={session.key} forge={checklistForge} note={editing} autoFocus={focusEditor} />
         {(editing.body || bodyOpen) && <NoteDetails key={`${session.key}:details`} body={editing.body} onChange={(body) => { setBodyOpen(true); updateNote({ body }) }} />}

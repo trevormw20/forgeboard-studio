@@ -24,12 +24,13 @@ vi.mock('../lib/db', () => ({
 
 afterEach(async () => { cleanup(); await act(async () => { await Promise.resolve() }); cached = undefined; vi.useRealTimers(); vi.restoreAllMocks() })
 
-function Harness({ initialProjectId = 'snail', onAdd = () => {}, controlledSearch = false }: { initialProjectId?: string; onAdd?: () => void; controlledSearch?: boolean }) {
+function Harness({ initialProjectId = 'snail', onAdd = () => {}, controlledSearch = false, failCheckboxEdits = false }: { initialProjectId?: string; onAdd?: () => void; controlledSearch?: boolean; failCheckboxEdits?: boolean }) {
   const forge = useForgeboard()
   const [projectId, setProjectId] = useState<string | undefined>(initialProjectId)
   const [query, setQuery] = useState('')
   if (!forge.ready) return <p>Loading</p>
-  return <>{controlledSearch && <><label>Sidebar note search<input type="search" value={query} onChange={(event) => setQuery(event.target.value)} /></label><button onClick={() => setProjectId('tactics')}>Navigate to Tactics notebook</button></>}<PersonalNotes forge={forge} initialProjectId={projectId} onProjectChange={setProjectId} searchQuery={controlledSearch ? query : undefined} onSearchQueryChange={controlledSearch ? setQuery : undefined} onAddProject={() => { onAdd(); forge.actions.addProject({ name: 'New venture', color: '#73a7ed', icon: '✦' }) }} /><output aria-label="Saved notes">{JSON.stringify(forge.workspace.personalNotes ?? [])}</output></>
+  const notesForge = failCheckboxEdits ? { ...forge, actions: { ...forge.actions, updateNoteChecklistItem: () => { throw new Error('This checklist could not be updated.') } } } : forge
+  return <>{controlledSearch && <><label>Sidebar note search<input type="search" value={query} onChange={(event) => setQuery(event.target.value)} /></label><button onClick={() => setProjectId('tactics')}>Navigate to Tactics notebook</button></>}<PersonalNotes forge={notesForge} initialProjectId={projectId} onProjectChange={setProjectId} searchQuery={controlledSearch ? query : undefined} onSearchQueryChange={controlledSearch ? setQuery : undefined} onAddProject={() => { onAdd(); forge.actions.addProject({ name: 'New venture', color: '#73a7ed', icon: '✦' }) }} /><output aria-label="Saved notes">{JSON.stringify(forge.workspace.personalNotes ?? [])}</output></>
 }
 
 async function start() {
@@ -51,6 +52,110 @@ function createNote(title: string) {
 function savedNotes(): PersonalNote[] { return JSON.parse(screen.getByLabelText('Saved notes').textContent ?? '[]') }
 
 describe('Personal notes', () => {
+  it('shows disabled undo and redo controls on a new unsaved checklist', async () => {
+    await start()
+    const editor = within(screen.getByRole('region', { name: 'Note editor' }))
+    expect((editor.getByRole('button', { name: 'Undo note edit' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((editor.getByRole('button', { name: 'Redo note edit' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(editor.getByRole('button', { name: 'Add title' })).toBeTruthy()
+    expect(editor.getByRole('button', { name: 'Pin current note' })).toBeTruthy()
+    expect(savedNotes()).toHaveLength(0)
+  })
+
+  it('undoes the first typing burst back to the same blank checkbox without deleting the new note', async () => {
+    await start()
+    const first = screen.getByRole('textbox', { name: 'Edit New item' }) as HTMLInputElement
+    first.focus()
+    for (const text of ['M', 'Mi', 'Milk']) fireEvent.change(first, { target: { value: text } })
+    expect(savedNotes()).toHaveLength(1)
+    expect(screen.getByRole('textbox', { name: 'Edit Milk' })).toBe(first)
+    fireEvent.click(screen.getByRole('button', { name: 'Undo note edit' }))
+    expect(screen.getByRole('textbox', { name: 'Edit New item' })).toBe(first)
+    expect(first.value).toBe('')
+    expect(savedNotes()).toHaveLength(1)
+    expect(savedNotes()[0].deletedAt).toBeUndefined()
+    expect(savedNotes()[0].checklist?.[0].text).toBe('')
+    expect(screen.queryByRole('button', { name: 'Save draft as new checklist' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Redo note edit' }))
+    expect(screen.getByRole('textbox', { name: 'Edit Milk' })).toBe(first)
+    expect(first.value).toBe('Milk')
+  })
+
+  it('undoes and redoes checklist edits from the top toolbar without treating intentional row removal as remote deletion', async () => {
+    cached = seed()
+    const at = '2026-10-27T18:00:00Z'
+    cached.personalNotes = [{ id: 'groceries', projectId: 'snail', title: '', body: '', createdAt: at, updatedAt: at, checklist: [
+      { id: 'store', text: 'Walmart', order: 0, createdAt: at, updatedAt: at },
+    ] }]
+    render(<Harness />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Open note: Walmart' }))
+    const undo = screen.getByRole('button', { name: 'Undo note edit' }) as HTMLButtonElement
+    const redo = screen.getByRole('button', { name: 'Redo note edit' }) as HTMLButtonElement
+    expect(undo.disabled).toBe(true)
+    expect(redo.disabled).toBe(true)
+    fireEvent.change(screen.getByRole('textbox', { name: 'Edit Walmart' }), { target: { value: 'Groceries' } })
+    expect(undo.disabled).toBe(false)
+    fireEvent.click(undo)
+    expect(screen.getByRole('textbox', { name: 'Edit Walmart' })).toBeTruthy()
+    expect(redo.disabled).toBe(false)
+    fireEvent.click(redo)
+    expect(screen.getByRole('textbox', { name: 'Edit Groceries' })).toBeTruthy()
+    expect(redo.disabled).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Add item' }))
+    expect(screen.getByRole('textbox', { name: 'Edit New item' })).toBeTruthy()
+    fireEvent.click(undo)
+    expect(screen.queryByRole('textbox', { name: 'Edit New item' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Save draft as new checklist' })).toBeNull()
+    expect(screen.getAllByRole('listitem', { name: /^Checklist item:/ })).toHaveLength(1)
+    fireEvent.click(redo)
+    expect(screen.getByRole('textbox', { name: 'Edit New item' })).toBeTruthy()
+    expect(screen.getAllByRole('button', { name: 'Add item' })).toHaveLength(1)
+    expect(screen.queryByRole('alert')).toBeNull()
+    fireEvent.change(screen.getByLabelText('Project notebook'), { target: { value: 'tactics' } })
+    expect(undo.disabled).toBe(true)
+    expect(redo.disabled).toBe(true)
+  })
+
+  it('disables history while a checkbox draft needs recovery so undo cannot discard unsaved text', async () => {
+    cached = seed()
+    const at = '2026-10-27T18:00:00Z'
+    cached.personalNotes = [{ id: 'protected', projectId: 'snail', title: '', body: '', createdAt: at, updatedAt: at, checklist: [
+      { id: 'protected-row', text: 'Keep this', order: 0, createdAt: at, updatedAt: at },
+    ] }]
+    render(<Harness failCheckboxEdits />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Open note: Keep this' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Pin current note' }))
+    expect((screen.getByRole('button', { name: 'Undo note edit' }) as HTMLButtonElement).disabled).toBe(false)
+    fireEvent.change(screen.getByRole('textbox', { name: 'Edit Keep this' }), { target: { value: 'Keep this unsaved text too' } })
+    expect(screen.getByRole('button', { name: 'Save draft as new checklist' })).toBeTruthy()
+    const undo = screen.getByRole('button', { name: 'Undo note edit' }) as HTMLButtonElement
+    const redo = screen.getByRole('button', { name: 'Redo note edit' }) as HTMLButtonElement
+    expect(undo.disabled).toBe(true)
+    expect(redo.disabled).toBe(true)
+    fireEvent.click(undo)
+    expect((screen.getByRole('textbox', { name: 'Edit Keep this unsaved text too' }) as HTMLInputElement).value).toBe('Keep this unsaved text too')
+    expect(savedNotes()[0].checklist?.[0].text).toBe('Keep this')
+    expect(savedNotes()[0].pinned).toBe(true)
+  })
+
+  it('protects the first typed text if creating its baseline succeeds but the first text update fails', async () => {
+    cached = seed()
+    render(<Harness failCheckboxEdits />)
+    const first = await screen.findByRole('textbox', { name: 'Edit New item' })
+    fireEvent.change(first, { target: { value: 'Recover this first thought' } })
+    expect(screen.getByRole('textbox', { name: 'Edit Recover this first thought' })).toBe(first)
+    expect(savedNotes()).toHaveLength(1)
+    expect(savedNotes()[0].checklist?.[0].text).toBe('')
+    expect((screen.getByRole('button', { name: 'Undo note edit' }) as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Close note' }))
+    expect(screen.getByRole('textbox', { name: 'Edit Recover this first thought' })).toBe(first)
+    fireEvent.click(screen.getByRole('button', { name: 'Save draft as new checklist' }))
+    expect(savedNotes()).toHaveLength(2)
+    expect(savedNotes().filter((note) => note.checklist?.[0].text === 'Recover this first thought')).toHaveLength(1)
+    expect(screen.queryByRole('button', { name: 'Save draft as new checklist' })).toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
   it('starts with one real blank checkbox and lazily saves into that same input without moving focus', async () => {
     await start()
     expect(screen.getByRole('region', { name: 'Personal notes' })).toBeTruthy()

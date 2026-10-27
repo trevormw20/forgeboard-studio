@@ -22,6 +22,214 @@ const config = { owner: 'test', repo: 'vault', branch: 'main', path: 'data/works
 afterEach(async () => { await act(async () => { cleanup() }); vi.useRealTimers(); vi.restoreAllMocks() })
 beforeEach(() => { memory.mutations.clear(); memory.writes.length = 0; vi.mocked(fetchWorkspace).mockReset(); vi.mocked(putWorkspace).mockReset(); vi.mocked(fetchTaskInbox).mockReset().mockResolvedValue([]) })
 
+describe('personal note undo and redo', () => {
+  const at = '2026-10-27T16:00:00.000Z'
+  const checklist = () => [
+    { id: 'parent', text: 'Walmart', order: 0, createdAt: at, updatedAt: at },
+    { id: 'child', text: 'Fish', parentId: 'parent', order: 0, createdAt: at, updatedAt: at },
+    { id: 'grandchild', text: 'Salmon', parentId: 'child', order: 0, createdAt: at, updatedAt: at },
+    { id: 'other', text: 'Costco', order: 1, createdAt: at, updatedAt: at },
+  ]
+
+  it('undoes and redoes only the chosen note and persists the replay through the normal outbox', async () => {
+    vi.mocked(fetchWorkspace).mockResolvedValue({ workspace: createSeedWorkspace(), sha: 'sha' })
+    vi.mocked(putWorkspace).mockResolvedValue('history-sha')
+    const { result } = renderHook(() => useForgeboard())
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    let first = '', second = ''
+    act(() => {
+      first = result.current.actions.addPersonalNote({ projectId: result.current.workspace.projects[0].id, title: 'Shopping', body: 'Original' })
+      second = result.current.actions.addPersonalNote({ projectId: result.current.workspace.projects[1].id, title: 'Another project', body: 'Separate' })
+      result.current.actions.updatePersonalNote(first, { body: 'Changed' })
+      result.current.actions.updatePersonalNote(second, { color: '#123456' })
+    })
+    expect(result.current.noteHistory[first]).toEqual({ canUndo: true, canRedo: false })
+    act(() => { result.current.actions.undoPersonalNote(first) })
+    expect(result.current.workspace.personalNotes?.find((note) => note.id === first)?.body).toBe('Original')
+    expect(result.current.workspace.personalNotes?.find((note) => note.id === second)).toMatchObject({ body: 'Separate', color: '#123456' })
+    expect(result.current.noteHistory[first]).toEqual({ canUndo: false, canRedo: true })
+    act(() => { result.current.actions.redoPersonalNote(first) })
+    expect(result.current.workspace.personalNotes?.find((note) => note.id === first)?.body).toBe('Changed')
+    await act(async () => { await result.current.actions.flushLocalSaves() })
+    expect(memory.writes.at(-1)?.workspace.personalNotes?.find((note) => note.id === first)?.body).toBe('Changed')
+    expect(memory.writes.flatMap((write) => write.records).filter((record) => /undo|redo/.test(record.type))).toHaveLength(2)
+    await act(async () => { await result.current.actions.updateConnection(config) })
+    const uploaded = vi.mocked(putWorkspace).mock.calls[0][1]
+    expect(uploaded.personalNotes?.find((note) => note.id === first)?.body).toBe('Changed')
+    expect(uploaded).not.toHaveProperty('noteHistory')
+    expect(uploaded.personalNotes?.find((note) => note.id === first)).not.toHaveProperty('history')
+    expect(result.current.syncMeta.pendingWrites).toBe(0)
+  })
+
+  it('restores a deleted nested branch, nesting changes, and independent checkmarks without touching other rows', async () => {
+    const { result } = renderHook(() => useForgeboard())
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    let id = ''
+    act(() => { id = result.current.actions.addPersonalNote({ title: 'Groceries', body: '', checklist: checklist() }) })
+    const item = (itemId: string) => result.current.workspace.personalNotes?.find((note) => note.id === id)?.checklist?.find((row) => row.id === itemId)
+    act(() => { result.current.actions.deleteNoteChecklistItem(id, 'parent') })
+    expect(['parent', 'child', 'grandchild'].every((itemId) => item(itemId)?.deletedAt)).toBe(true)
+    act(() => { result.current.actions.undoPersonalNote(id) })
+    expect(['parent', 'child', 'grandchild'].every((itemId) => !item(itemId)?.deletedAt)).toBe(true)
+    expect(item('grandchild')?.parentId).toBe('child')
+    act(() => { result.current.actions.redoPersonalNote(id) })
+    expect(['parent', 'child', 'grandchild'].every((itemId) => item(itemId)?.deletedAt)).toBe(true)
+    act(() => {
+      result.current.actions.undoPersonalNote(id)
+      result.current.actions.moveNoteChecklistItem(id, 'grandchild', 'outdent')
+    })
+    expect(item('grandchild')?.parentId).toBe('parent')
+    act(() => { result.current.actions.undoPersonalNote(id) })
+    expect(item('grandchild')?.parentId).toBe('child')
+    act(() => { result.current.actions.redoPersonalNote(id) })
+    expect(item('grandchild')?.parentId).toBe('parent')
+    act(() => { result.current.actions.toggleNoteChecklistItem(id, 'parent') })
+    expect(item('parent')?.completedAt).toBeTruthy()
+    expect(item('child')?.completedAt).toBeUndefined()
+    act(() => { result.current.actions.undoPersonalNote(id) })
+    expect(item('parent')?.completedAt).toBeUndefined()
+    act(() => { result.current.actions.redoPersonalNote(id) })
+    expect(item('parent')?.completedAt).toBeTruthy()
+    expect(item('other')).toEqual(checklist()[3])
+  })
+
+  it('coalesces a typing burst but keeps another field and a pause as separate undo steps', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(at))
+    const { result } = renderHook(() => useForgeboard())
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    let id = ''
+    act(() => {
+      id = result.current.actions.addPersonalNote({ title: 'Original title', body: '' })
+      result.current.actions.updatePersonalNote(id, { body: 'a' })
+    })
+    vi.setSystemTime(new Date(Date.parse(at) + 500))
+    act(() => { result.current.actions.updatePersonalNote(id, { body: 'ab' }) })
+    vi.setSystemTime(new Date(Date.parse(at) + 600))
+    act(() => { result.current.actions.updatePersonalNote(id, { title: 'New title' }) })
+    vi.setSystemTime(new Date(Date.parse(at) + 700))
+    act(() => { result.current.actions.updatePersonalNote(id, { body: 'abc' }) })
+    vi.setSystemTime(new Date(Date.parse(at) + 2_300))
+    act(() => { result.current.actions.updatePersonalNote(id, { body: 'abcd' }) })
+    const note = () => result.current.workspace.personalNotes?.find((entry) => entry.id === id)
+    act(() => { result.current.actions.undoPersonalNote(id) })
+    expect(note()?.body).toBe('abc')
+    act(() => { result.current.actions.undoPersonalNote(id) })
+    expect(note()?.body).toBe('ab')
+    expect(note()?.title).toBe('New title')
+    act(() => { result.current.actions.undoPersonalNote(id) })
+    expect(note()?.title).toBe('Original title')
+    act(() => { result.current.actions.undoPersonalNote(id) })
+    expect(note()?.body).toBe('')
+    expect(result.current.noteHistory[id]).toEqual({ canUndo: false, canRedo: true })
+    act(() => { result.current.actions.redoPersonalNote(id) })
+    expect(note()?.body).toBe('ab')
+  })
+
+  it('undoes a newly added sub-checkbox using a tombstone and redoes it with the same identity and edited text', async () => {
+    const { result } = renderHook(() => useForgeboard())
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    let id = '', added = ''
+    act(() => {
+      id = result.current.actions.addPersonalNote({ title: 'Groceries', body: '', checklist: checklist() })
+      added = result.current.actions.addNoteChecklistItem(id, { text: 'Frozen', parentId: 'child' })
+      result.current.actions.updateNoteChecklistItem(id, added, { text: 'Frozen fillets' })
+    })
+    const item = () => result.current.workspace.personalNotes?.find((note) => note.id === id)?.checklist?.find((row) => row.id === added)
+    act(() => { result.current.actions.undoPersonalNote(id) })
+    expect(item()).toMatchObject({ text: 'Frozen', parentId: 'child' })
+    act(() => { result.current.actions.undoPersonalNote(id) })
+    expect(item()?.deletedAt).toBeTruthy()
+    act(() => { result.current.actions.redoPersonalNote(id) })
+    expect(item()).toMatchObject({ id: added, text: 'Frozen', parentId: 'child' })
+    expect(item()?.deletedAt).toBeUndefined()
+    act(() => { result.current.actions.redoPersonalNote(id) })
+    expect(item()).toMatchObject({ id: added, text: 'Frozen fillets', parentId: 'child' })
+    expect(item()?.deletedAt).toBeUndefined()
+  })
+
+  it('separates typing in different checklist rows and keeps each note’s redo stack independent', async () => {
+    const { result } = renderHook(() => useForgeboard())
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    let first = '', second = ''
+    act(() => {
+      first = result.current.actions.addPersonalNote({ title: 'Shopping', body: '', checklist: checklist() })
+      second = result.current.actions.addPersonalNote({ title: 'Separate note', body: '' })
+      result.current.actions.updateNoteChecklistItem(first, 'child', { text: 'Fresh fish' })
+      result.current.actions.updateNoteChecklistItem(first, 'other', { text: 'Costco run' })
+      result.current.actions.updatePersonalNote(second, { body: 'Other note edit' })
+      result.current.actions.undoPersonalNote(first)
+      result.current.actions.undoPersonalNote(second)
+    })
+    const firstNote = () => result.current.workspace.personalNotes?.find((note) => note.id === first)
+    expect(firstNote()?.checklist?.find((item) => item.id === 'other')?.text).toBe('Costco')
+    expect(firstNote()?.checklist?.find((item) => item.id === 'child')?.text).toBe('Fresh fish')
+    expect(result.current.noteHistory[first].canRedo).toBe(true)
+    expect(result.current.noteHistory[second].canRedo).toBe(true)
+    act(() => { result.current.actions.updatePersonalNote(first, { color: '#abcdef' }) })
+    expect(result.current.noteHistory[first].canRedo).toBe(false)
+    expect(result.current.noteHistory[second].canRedo).toBe(true)
+    act(() => { result.current.actions.redoPersonalNote(second) })
+    expect(result.current.workspace.personalNotes?.find((note) => note.id === second)?.body).toBe('Other note edit')
+    act(() => {
+      result.current.actions.undoPersonalNote(first)
+      result.current.actions.undoPersonalNote(first)
+    })
+    expect(firstNote()?.checklist?.find((item) => item.id === 'child')?.text).toBe('Fish')
+  })
+
+  it('replays only its changed fields after sync and preserves new remote note content and checklist items', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(at))
+    const remote = createSeedWorkspace()
+    remote.personalNotes = [{ id: 'shared-note', title: 'Shared', body: 'Original', checklist: checklist(), createdAt: at, updatedAt: at }]
+    vi.mocked(fetchWorkspace).mockResolvedValue({ workspace: remote, sha: 'initial' })
+    vi.mocked(putWorkspace).mockResolvedValue('saved')
+    const { result } = renderHook(() => useForgeboard())
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    await act(async () => { await result.current.actions.updateConnection(config) })
+    act(() => { result.current.actions.updateNoteChecklistItem('shared-note', 'child', { text: 'Fresh fish' }) })
+    await act(async () => { await result.current.actions.syncNow() })
+    const incoming = structuredClone(result.current.workspace)
+    const shared = incoming.personalNotes!.find((note) => note.id === 'shared-note')!
+    shared.body = 'Added on my phone'
+    shared.updatedAt = '2099-01-01T00:00:00.000Z'
+    shared.checklist!.push({ id: 'phone-item', text: 'Milk from phone', order: 2, createdAt: at, updatedAt: at })
+    vi.mocked(fetchWorkspace).mockResolvedValue({ workspace: incoming, sha: 'phone-change' })
+    await act(async () => { await result.current.actions.syncNow() })
+    act(() => { result.current.actions.undoPersonalNote('shared-note') })
+    const note = () => result.current.workspace.personalNotes?.find((entry) => entry.id === 'shared-note')
+    expect(note()?.body).toBe('Added on my phone')
+    expect(note()?.checklist?.find((item) => item.id === 'phone-item')?.text).toBe('Milk from phone')
+    expect(note()?.checklist?.find((item) => item.id === 'child')?.text).toBe('Fish')
+    act(() => { result.current.actions.redoPersonalNote('shared-note') })
+    expect(note()?.body).toBe('Added on my phone')
+    expect(note()?.checklist?.find((item) => item.id === 'child')?.text).toBe('Fresh fish')
+  })
+
+  it('refuses to overwrite a newer remote change to the same field during undo', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(at))
+    const remote = createSeedWorkspace()
+    remote.personalNotes = [{ id: 'shared-note', title: 'Shared', body: 'Original', createdAt: at, updatedAt: at }]
+    vi.mocked(fetchWorkspace).mockResolvedValue({ workspace: remote, sha: 'initial' })
+    vi.mocked(putWorkspace).mockResolvedValue('saved')
+    const { result } = renderHook(() => useForgeboard())
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    await act(async () => { await result.current.actions.updateConnection(config) })
+    act(() => { result.current.actions.updatePersonalNote('shared-note', { body: 'My local edit' }) })
+    await act(async () => { await result.current.actions.syncNow() })
+    const incoming = structuredClone(result.current.workspace)
+    Object.assign(incoming.personalNotes!.find((note) => note.id === 'shared-note')!, { body: 'Newer phone edit', updatedAt: '2099-01-01T00:00:00.000Z' })
+    vi.mocked(fetchWorkspace).mockResolvedValue({ workspace: incoming, sha: 'phone-change' })
+    await act(async () => { await result.current.actions.syncNow() })
+    const before = result.current.workspace
+    expect(() => result.current.actions.undoPersonalNote('shared-note')).toThrow()
+    expect(result.current.workspace).toBe(before)
+    expect(result.current.workspace.personalNotes?.find((note) => note.id === 'shared-note')?.body).toBe('Newer phone edit')
+  })
+})
+
 describe('review changes during sync', () => {
   it('queues nested checklist changes, scopes actions to their note, and uploads complete note content', async () => {
     const remote = createSeedWorkspace()
